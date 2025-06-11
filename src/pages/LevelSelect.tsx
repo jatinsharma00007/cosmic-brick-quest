@@ -81,7 +81,7 @@ const LevelSelect = () => {
             const level = i + 1;
             const levelKey = `level_${level}`;
             const data = levelData[levelKey];
-            const isUnlocked = data?.unlocked;
+            const isUnlocked = data?.unlocked || false;
 
             return (
               <div
@@ -101,9 +101,9 @@ const LevelSelect = () => {
                 
                 <span className="text-sm font-bold">{level}</span>
                 
-                {isUnlocked && renderStars(data.stars)}
+                {isUnlocked && data && renderStars(data.stars)}
                 
-                {data.score > 0 && (
+                {data && data.score > 0 && (
                   <span className="text-xs text-white/70 absolute bottom-1">
                     {data.score}
                   </span>
