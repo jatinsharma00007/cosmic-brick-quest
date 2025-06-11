@@ -55,8 +55,8 @@ const Game = () => {
   const [gameState, setGameState] = useState<'playing' | 'won' | 'lost' | 'levelFailed'>('playing');
   
   // Game objects
-  const [paddle, setPaddle] = useState<Paddle>({ x: 375, y: 550, width: 100, height: 20 });
-  const [ball, setBall] = useState<Ball>({ x: 400, y: 300, dx: 4, dy: 4, radius: 10, speed: 4 });
+  const [paddle, setPaddle] = useState<Paddle>({ x: 350, y: 550, width: 100, height: 20 });
+  const [ball, setBall] = useState<Ball>({ x: 400, y: 530, dx: 4, dy: -4, radius: 10, speed: 4 });
   const [bricks, setBricks] = useState<Brick[]>([]);
 
   const gameLoopRef = useRef<number>();
@@ -65,11 +65,14 @@ const Game = () => {
   useEffect(() => {
     const levelParam = searchParams.get('level');
     if (levelParam) {
-      setLevel(parseInt(levelParam));
+      const newLevel = parseInt(levelParam);
+      setLevel(newLevel);
+      initializeGame(newLevel);
+    } else {
+      initializeGame(1);
     }
     
     document.title = `Level ${level} - Brick Breaker`;
-    initializeGame();
     setupEventListeners();
     startGameLoop();
 
@@ -81,7 +84,19 @@ const Game = () => {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mousemove', handleMouseMove);
     };
-  }, [level]);
+  }, []);
+
+  // Separate effect for level changes
+  useEffect(() => {
+    const levelParam = searchParams.get('level');
+    if (levelParam) {
+      const newLevel = parseInt(levelParam);
+      if (newLevel !== level) {
+        setLevel(newLevel);
+        initializeGame(newLevel);
+      }
+    }
+  }, [searchParams]);
 
   const getDifficultyConfig = (levelNumber: number): DifficultyConfig => {
     if (levelNumber <= 10) {
@@ -132,12 +147,14 @@ const Game = () => {
     const newBricks: Brick[] = [];
     const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'];
     
-    const brickWidth = 60;
+    const brickWidth = 80;
     const brickHeight = 25;
     const padding = 5;
     const offsetTop = 80;
     const totalWidth = config.cols * (brickWidth + padding) - padding;
     const offsetLeft = (800 - totalWidth) / 2;
+
+    console.log(`Generating level ${levelNumber} with config:`, config);
 
     for (let row = 0; row < config.rows; row++) {
       for (let col = 0; col < config.cols; col++) {
@@ -173,51 +190,69 @@ const Game = () => {
       }
     }
     
+    console.log(`Generated ${newBricks.length} bricks for level ${levelNumber}`);
     return newBricks;
   };
 
-  const initializeGame = () => {
-    const config = getDifficultyConfig(level);
-    const newBricks = generateLevel(level);
+  const initializeGame = (levelNumber?: number) => {
+    const currentLevel = levelNumber || level;
+    const config = getDifficultyConfig(currentLevel);
+    const newBricks = generateLevel(currentLevel);
     
-    setBricks(newBricks);
+    console.log(`Initializing game for level ${currentLevel}`);
+    
+    // Reset game state
     setScore(0);
     setLives(3);
     setGameState('playing');
+    setIsPaused(false);
     
-    // Reset paddle and ball based on difficulty
-    setPaddle(prev => ({ 
-      ...prev, 
-      width: config.paddleWidth,
-      x: (800 - config.paddleWidth) / 2 
-    }));
+    // Set up paddle
+    const newPaddle = { 
+      x: (800 - config.paddleWidth) / 2, 
+      y: 550, 
+      width: config.paddleWidth, 
+      height: 20 
+    };
+    setPaddle(newPaddle);
     
-    setBall({
-      x: 400,
-      y: 300,
+    // Set up ball at paddle center
+    const newBall = {
+      x: newPaddle.x + newPaddle.width / 2,
+      y: newPaddle.y - 20, // Just above paddle
       dx: config.ballSpeed * (Math.random() > 0.5 ? 1 : -1),
-      dy: config.ballSpeed,
+      dy: -config.ballSpeed, // Always start going up
       radius: 10,
       speed: config.ballSpeed
-    });
+    };
+    setBall(newBall);
+    
+    // Set bricks
+    setBricks(newBricks);
+    
+    console.log(`Game initialized with ${newBricks.length} bricks, paddle at (${newPaddle.x}, ${newPaddle.y}), ball at (${newBall.x}, ${newBall.y})`);
   };
 
   const resetBallAndPaddle = () => {
     const config = getDifficultyConfig(level);
     
-    setPaddle(prev => ({ 
-      ...prev, 
-      x: (800 - prev.width) / 2 
-    }));
+    const newPaddle = { 
+      x: (800 - paddle.width) / 2, 
+      y: 550, 
+      width: paddle.width, 
+      height: 20 
+    };
+    setPaddle(newPaddle);
     
-    setBall({
-      x: 400,
-      y: 300,
+    const newBall = {
+      x: newPaddle.x + newPaddle.width / 2,
+      y: newPaddle.y - 20,
       dx: config.ballSpeed * (Math.random() > 0.5 ? 1 : -1),
-      dy: config.ballSpeed,
+      dy: -config.ballSpeed,
       radius: 10,
       speed: config.ballSpeed
-    });
+    };
+    setBall(newBall);
   };
 
   const setupEventListeners = () => {
@@ -257,6 +292,8 @@ const Game = () => {
       if (!isPaused && gameState === 'playing') {
         updateGame();
         renderGame();
+      } else {
+        renderGame(); // Still render when paused to show current state
       }
       gameLoopRef.current = requestAnimationFrame(gameLoop);
     };
@@ -301,9 +338,11 @@ const Game = () => {
       // Wall collisions
       if (newX <= prev.radius || newX >= 800 - prev.radius) {
         newDx = -newDx;
+        newX = prev.x + newDx; // Prevent ball from getting stuck in wall
       }
       if (newY <= prev.radius) {
         newDy = -newDy;
+        newY = prev.y + newDy;
       }
 
       // Ball lost - lose a life
@@ -319,7 +358,7 @@ const Game = () => {
           }
           return newLives;
         });
-        return prev;
+        return prev; // Don't update ball position when life is lost
       }
 
       // Paddle collision
@@ -334,6 +373,7 @@ const Game = () => {
         
         newDx = prev.speed * Math.sin(angle);
         newDy = -Math.abs(prev.speed * Math.cos(angle));
+        newY = paddle.y - prev.radius; // Position ball just above paddle
       }
 
       // Brick collisions
@@ -482,7 +522,7 @@ const Game = () => {
   };
 
   const resetLevel = () => {
-    initializeGame();
+    initializeGame(level);
     setGameState('playing');
     setIsPaused(false);
     setShowMenu(false);
