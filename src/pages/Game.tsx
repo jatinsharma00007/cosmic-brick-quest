@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { Pause, Play, Home, Menu } from 'lucide-react';
+import { Pause, Play, Home, Menu, Heart } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Brick {
@@ -12,6 +12,9 @@ interface Brick {
   height: number;
   color: string;
   destroyed: boolean;
+  hits: number;
+  maxHits: number;
+  type: 'normal' | 'strong' | 'bomb';
 }
 
 interface Ball {
@@ -20,6 +23,7 @@ interface Ball {
   dx: number;
   dy: number;
   radius: number;
+  speed: number;
 }
 
 interface Paddle {
@@ -27,6 +31,16 @@ interface Paddle {
   y: number;
   width: number;
   height: number;
+}
+
+interface DifficultyConfig {
+  rows: number;
+  cols: number;
+  ballSpeed: number;
+  paddleWidth: number;
+  emptyChance: number;
+  strongBrickChance: number;
+  bombBrickChance: number;
 }
 
 const Game = () => {
@@ -37,11 +51,12 @@ const Game = () => {
   const [showMenu, setShowMenu] = useState(false);
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
-  const [gameState, setGameState] = useState<'playing' | 'won' | 'lost'>('playing');
+  const [lives, setLives] = useState(3);
+  const [gameState, setGameState] = useState<'playing' | 'won' | 'lost' | 'levelFailed'>('playing');
   
   // Game objects
   const [paddle, setPaddle] = useState<Paddle>({ x: 375, y: 550, width: 100, height: 20 });
-  const [ball, setBall] = useState<Ball>({ x: 400, y: 300, dx: 4, dy: 4, radius: 10 });
+  const [ball, setBall] = useState<Ball>({ x: 400, y: 300, dx: 4, dy: 4, radius: 10, speed: 4 });
   const [bricks, setBricks] = useState<Brick[]>([]);
 
   const gameLoopRef = useRef<number>();
@@ -68,35 +83,141 @@ const Game = () => {
     };
   }, [level]);
 
-  const initializeGame = () => {
-    // Initialize bricks based on level
+  const getDifficultyConfig = (levelNumber: number): DifficultyConfig => {
+    if (levelNumber <= 10) {
+      return { 
+        rows: 4, 
+        cols: 7, 
+        ballSpeed: 3, 
+        paddleWidth: 120, 
+        emptyChance: 0.3,
+        strongBrickChance: 0,
+        bombBrickChance: 0
+      };
+    } else if (levelNumber <= 30) {
+      return { 
+        rows: 6, 
+        cols: 8, 
+        ballSpeed: 4, 
+        paddleWidth: 100, 
+        emptyChance: 0.25,
+        strongBrickChance: 0.1,
+        bombBrickChance: 0
+      };
+    } else if (levelNumber <= 70) {
+      return { 
+        rows: 8, 
+        cols: 10, 
+        ballSpeed: 5, 
+        paddleWidth: 80, 
+        emptyChance: 0.2,
+        strongBrickChance: 0.2,
+        bombBrickChance: 0.05
+      };
+    } else {
+      return { 
+        rows: 10, 
+        cols: 12, 
+        ballSpeed: 6, 
+        paddleWidth: 70, 
+        emptyChance: 0.15,
+        strongBrickChance: 0.3,
+        bombBrickChance: 0.1
+      };
+    }
+  };
+
+  const generateLevel = (levelNumber: number): Brick[] => {
+    const config = getDifficultyConfig(levelNumber);
     const newBricks: Brick[] = [];
     const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'];
     
-    const rows = Math.min(5 + Math.floor(level / 10), 10);
-    const cols = 10;
-    const brickWidth = 70;
+    const brickWidth = 60;
     const brickHeight = 25;
     const padding = 5;
     const offsetTop = 80;
-    const offsetLeft = (800 - (cols * (brickWidth + padding) - padding)) / 2;
+    const totalWidth = config.cols * (brickWidth + padding) - padding;
+    const offsetLeft = (800 - totalWidth) / 2;
 
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        newBricks.push({
-          x: offsetLeft + col * (brickWidth + padding),
-          y: offsetTop + row * (brickHeight + padding),
-          width: brickWidth,
-          height: brickHeight,
-          color: colors[row % colors.length],
-          destroyed: false
-        });
+    for (let row = 0; row < config.rows; row++) {
+      for (let col = 0; col < config.cols; col++) {
+        if (Math.random() > config.emptyChance) {
+          let brickType: 'normal' | 'strong' | 'bomb' = 'normal';
+          let maxHits = 1;
+          let color = colors[row % colors.length];
+
+          // Determine brick type based on difficulty
+          const rand = Math.random();
+          if (rand < config.bombBrickChance) {
+            brickType = 'bomb';
+            maxHits = 1;
+            color = '#FF4444';
+          } else if (rand < config.bombBrickChance + config.strongBrickChance) {
+            brickType = 'strong';
+            maxHits = 2;
+            color = '#888888';
+          }
+
+          newBricks.push({
+            x: offsetLeft + col * (brickWidth + padding),
+            y: offsetTop + row * (brickHeight + padding),
+            width: brickWidth,
+            height: brickHeight,
+            color: color,
+            destroyed: false,
+            hits: 0,
+            maxHits: maxHits,
+            type: brickType
+          });
+        }
       }
     }
     
+    return newBricks;
+  };
+
+  const initializeGame = () => {
+    const config = getDifficultyConfig(level);
+    const newBricks = generateLevel(level);
+    
     setBricks(newBricks);
     setScore(0);
+    setLives(3);
     setGameState('playing');
+    
+    // Reset paddle and ball based on difficulty
+    setPaddle(prev => ({ 
+      ...prev, 
+      width: config.paddleWidth,
+      x: (800 - config.paddleWidth) / 2 
+    }));
+    
+    setBall({
+      x: 400,
+      y: 300,
+      dx: config.ballSpeed * (Math.random() > 0.5 ? 1 : -1),
+      dy: config.ballSpeed,
+      radius: 10,
+      speed: config.ballSpeed
+    });
+  };
+
+  const resetBallAndPaddle = () => {
+    const config = getDifficultyConfig(level);
+    
+    setPaddle(prev => ({ 
+      ...prev, 
+      x: (800 - prev.width) / 2 
+    }));
+    
+    setBall({
+      x: 400,
+      y: 300,
+      dx: config.ballSpeed * (Math.random() > 0.5 ? 1 : -1),
+      dy: config.ballSpeed,
+      radius: 10,
+      speed: config.ballSpeed
+    });
   };
 
   const setupEventListeners = () => {
@@ -142,6 +263,25 @@ const Game = () => {
     gameLoop();
   };
 
+  const destroyBricksAroundBomb = (bombX: number, bombY: number) => {
+    setBricks(currentBricks => {
+      return currentBricks.map(brick => {
+        if (brick.destroyed) return brick;
+        
+        const distance = Math.sqrt(
+          Math.pow(brick.x + brick.width/2 - bombX, 2) + 
+          Math.pow(brick.y + brick.height/2 - bombY, 2)
+        );
+        
+        if (distance < 100) { // Bomb radius
+          setScore(prev => prev + 100);
+          return { ...brick, destroyed: true };
+        }
+        return brick;
+      });
+    });
+  };
+
   const updateGame = () => {
     // Update paddle with keyboard
     if (keysRef.current['ArrowLeft']) {
@@ -166,10 +306,19 @@ const Game = () => {
         newDy = -newDy;
       }
 
-      // Ball lost
+      // Ball lost - lose a life
       if (newY >= 600) {
-        setGameState('lost');
-        toast.error('Game Over! Try again!');
+        setLives(currentLives => {
+          const newLives = currentLives - 1;
+          if (newLives <= 0) {
+            setGameState('levelFailed');
+            toast.error('Level Failed! All lives lost!');
+          } else {
+            toast.warning(`Life lost! ${newLives} lives remaining`);
+            setTimeout(() => resetBallAndPaddle(), 1000);
+          }
+          return newLives;
+        });
         return prev;
       }
 
@@ -178,25 +327,52 @@ const Game = () => {
           newY - prev.radius <= paddle.y + paddle.height &&
           newX >= paddle.x && 
           newX <= paddle.x + paddle.width) {
-        newDy = -Math.abs(newDy);
+        
+        // Calculate angle based on where ball hits paddle
+        const hitPos = (newX - paddle.x) / paddle.width;
+        const angle = (hitPos - 0.5) * Math.PI / 3; // Max 60 degree angle
+        
+        newDx = prev.speed * Math.sin(angle);
+        newDy = -Math.abs(prev.speed * Math.cos(angle));
       }
 
       // Brick collisions
       setBricks(currentBricks => {
         const updatedBricks = [...currentBricks];
         let scoreIncrease = 0;
+        let hitDetected = false;
 
         for (let i = 0; i < updatedBricks.length; i++) {
           const brick = updatedBricks[i];
           if (!brick.destroyed && 
-              newX >= brick.x && 
-              newX <= brick.x + brick.width &&
-              newY >= brick.y && 
-              newY <= brick.y + brick.height) {
+              newX + prev.radius >= brick.x && 
+              newX - prev.radius <= brick.x + brick.width &&
+              newY + prev.radius >= brick.y && 
+              newY - prev.radius <= brick.y + brick.height) {
             
-            updatedBricks[i] = { ...brick, destroyed: true };
-            newDy = -newDy;
-            scoreIncrease += 100;
+            if (!hitDetected) {
+              newDy = -newDy;
+              hitDetected = true;
+            }
+
+            brick.hits += 1;
+            
+            if (brick.hits >= brick.maxHits) {
+              brick.destroyed = true;
+              
+              if (brick.type === 'bomb') {
+                destroyBricksAroundBomb(brick.x + brick.width/2, brick.y + brick.height/2);
+                scoreIncrease += 500;
+              } else if (brick.type === 'strong') {
+                scoreIncrease += 200;
+              } else {
+                scoreIncrease += 100;
+              }
+            } else {
+              // Visual feedback for multi-hit bricks
+              brick.color = brick.color === '#888888' ? '#AAAAAA' : '#888888';
+            }
+            
             break;
           }
         }
@@ -240,6 +416,18 @@ const Game = () => {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
+        
+        // Show hit count for multi-hit bricks
+        if (brick.maxHits > 1) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            `${brick.maxHits - brick.hits}`, 
+            brick.x + brick.width/2, 
+            brick.y + brick.height/2 + 4
+          );
+        }
       }
     });
 
@@ -278,9 +466,14 @@ const Game = () => {
   };
 
   const calculateStars = () => {
-    // Simple star calculation based on score
-    if (score >= 3000) return 3;
-    if (score >= 2000) return 2;
+    // Star calculation based on score and lives remaining
+    const baseScore = bricks.length * 100;
+    const lifeBonus = lives * 500;
+    const totalPossible = baseScore + lifeBonus;
+    const percentage = (score + lifeBonus) / totalPossible;
+    
+    if (percentage >= 0.9) return 3;
+    if (percentage >= 0.7) return 2;
     return 1;
   };
 
@@ -305,14 +498,21 @@ const Game = () => {
       <div className="bg-black/50 text-white p-4 flex justify-between items-center">
         <div className="font-bold text-lg">Level {level}/100</div>
         <div className="font-bold text-xl">Score: {score}</div>
-        <Button 
-          onClick={() => setShowMenu(true)}
-          variant="ghost" 
-          size="icon"
-          className="text-white hover:bg-white/20"
-        >
-          <Menu size={24} />
-        </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            {Array.from({ length: lives }, (_, i) => (
+              <Heart key={i} size={20} className="text-red-500 fill-red-500" />
+            ))}
+          </div>
+          <Button 
+            onClick={() => setShowMenu(true)}
+            variant="ghost" 
+            size="icon"
+            className="text-white hover:bg-white/20"
+          >
+            <Menu size={24} />
+          </Button>
+        </div>
       </div>
 
       {/* Game Canvas */}
@@ -328,6 +528,7 @@ const Game = () => {
       {/* Game Controls */}
       <div className="text-center mt-4 text-white/80">
         <p>Use mouse or arrow keys to move paddle • Space to pause</p>
+        <p className="text-sm">Lives: {lives} • Red bricks explode • Gray bricks need 2 hits</p>
       </div>
 
       {/* Menu Overlay */}
@@ -376,10 +577,15 @@ const Game = () => {
           <div className="bg-green-800 p-8 rounded-xl text-white text-center space-y-4">
             <h2 className="text-3xl font-bold text-yellow-300">Level Complete!</h2>
             <p className="text-xl">Score: {score}</p>
+            <p>Lives Remaining: {lives}</p>
             <p>Stars Earned: {'★'.repeat(calculateStars())}</p>
             <div className="space-x-4">
-              <Button onClick={() => navigate(`/game?level=${level + 1}`)} className="bg-blue-600 hover:bg-blue-700">
-                Next Level
+              <Button 
+                onClick={() => navigate(`/game?level=${level + 1}`)} 
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={level >= 100}
+              >
+                {level >= 100 ? 'Game Complete!' : 'Next Level'}
               </Button>
               <Button onClick={quitToMenu} variant="outline">
                 Level Select
@@ -389,11 +595,12 @@ const Game = () => {
         </div>
       )}
 
-      {gameState === 'lost' && (
+      {gameState === 'levelFailed' && (
         <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-red-800 p-8 rounded-xl text-white text-center space-y-4">
-            <h2 className="text-3xl font-bold">Game Over!</h2>
-            <p className="text-xl">Score: {score}</p>
+            <h2 className="text-3xl font-bold">Level Failed!</h2>
+            <p className="text-xl">All lives lost!</p>
+            <p>Score: {score}</p>
             <div className="space-x-4">
               <Button onClick={resetLevel} className="bg-green-600 hover:bg-green-700">
                 Try Again
