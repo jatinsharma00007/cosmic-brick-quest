@@ -1,5 +1,4 @@
-
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Pause, Play, Home, Menu, Heart } from 'lucide-react';
@@ -47,6 +46,9 @@ const Game = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number>();
+  const keysRef = useRef<{ [key: string]: boolean }>({});
+
   const [isPaused, setIsPaused] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [score, setScore] = useState(0);
@@ -54,49 +56,203 @@ const Game = () => {
   const [lives, setLives] = useState(3);
   const [gameState, setGameState] = useState<'playing' | 'won' | 'lost' | 'levelFailed'>('playing');
   
-  // Game objects
+  // Game objects with proper initial values
   const [paddle, setPaddle] = useState<Paddle>({ x: 350, y: 550, width: 100, height: 20 });
   const [ball, setBall] = useState<Ball>({ x: 400, y: 530, dx: 4, dy: -4, radius: 10, speed: 4 });
   const [bricks, setBricks] = useState<Brick[]>([]);
 
-  const gameLoopRef = useRef<number>();
-  const keysRef = useRef<{ [key: string]: boolean }>({});
+  // Render function that will be called on every frame
+  const renderGame = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  useEffect(() => {
-    const levelParam = searchParams.get('level');
-    if (levelParam) {
-      const newLevel = parseInt(levelParam);
-      setLevel(newLevel);
-      initializeGame(newLevel);
-    } else {
-      initializeGame(1);
-    }
-    
-    document.title = `Level ${level} - Brick Breaker`;
-    setupEventListeners();
-    startGameLoop();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    return () => {
-      if (gameLoopRef.current) {
-        cancelAnimationFrame(gameLoopRef.current);
+    // Clear canvas with dark background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, 800, 600);
+
+    // Draw bricks
+    bricks.forEach(brick => {
+      if (!brick.destroyed) {
+        ctx.fillStyle = brick.color;
+        ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
+        
+        // Add border
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
+        
+        // Show hit count for multi-hit bricks
+        if (brick.maxHits > 1) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            `${brick.maxHits - brick.hits}`, 
+            brick.x + brick.width/2, 
+            brick.y + brick.height/2 + 4
+          );
+        }
+
+        // Special indicators for bomb bricks
+        if (brick.type === 'bomb') {
+          ctx.fillStyle = '#ffff00';
+          ctx.font = 'bold 10px Arial';
+          ctx.fillText('💣', brick.x + brick.width/2, brick.y + brick.height/2 + 3);
+        }
       }
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('mousemove', handleMouseMove);
-    };
-  }, []);
+    });
 
-  // Separate effect for level changes
-  useEffect(() => {
-    const levelParam = searchParams.get('level');
-    if (levelParam) {
-      const newLevel = parseInt(levelParam);
-      if (newLevel !== level) {
-        setLevel(newLevel);
-        initializeGame(newLevel);
+    // Draw paddle
+    ctx.fillStyle = '#ff6b6b';
+    ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(paddle.x, paddle.y, paddle.width, paddle.height);
+
+    // Draw ball
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#cccccc';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }, [bricks, paddle, ball]);
+
+  // Game loop that updates and renders
+  const gameLoop = useCallback(() => {
+    if (!isPaused && gameState === 'playing') {
+      // Update paddle with keyboard
+      if (keysRef.current['ArrowLeft']) {
+        setPaddle(prev => ({ ...prev, x: Math.max(0, prev.x - 8) }));
       }
+      if (keysRef.current['ArrowRight']) {
+        setPaddle(prev => ({ ...prev, x: Math.min(800 - prev.width, prev.x + 8) }));
+      }
+
+      // Update ball position
+      setBall(prevBall => {
+        let newX = prevBall.x + prevBall.dx;
+        let newY = prevBall.y + prevBall.dy;
+        let newDx = prevBall.dx;
+        let newDy = prevBall.dy;
+
+        // Wall collisions
+        if (newX <= prevBall.radius || newX >= 800 - prevBall.radius) {
+          newDx = -newDx;
+          newX = prevBall.x + newDx;
+        }
+        if (newY <= prevBall.radius) {
+          newDy = -newDy;
+          newY = prevBall.y + newDy;
+        }
+
+        // Ball lost - lose a life
+        if (newY >= 600) {
+          setLives(currentLives => {
+            const newLives = currentLives - 1;
+            if (newLives <= 0) {
+              setGameState('levelFailed');
+              toast.error('Level Failed! All lives lost!');
+            } else {
+              toast.warning(`Life lost! ${newLives} lives remaining`);
+              setTimeout(() => resetBallAndPaddle(), 1000);
+            }
+            return newLives;
+          });
+          return prevBall;
+        }
+
+        // Paddle collision
+        if (newY + prevBall.radius >= paddle.y && 
+            newY - prevBall.radius <= paddle.y + paddle.height &&
+            newX >= paddle.x && 
+            newX <= paddle.x + paddle.width) {
+          
+          const hitPos = (newX - paddle.x) / paddle.width;
+          const angle = (hitPos - 0.5) * Math.PI / 3;
+          
+          newDx = prevBall.speed * Math.sin(angle);
+          newDy = -Math.abs(prevBall.speed * Math.cos(angle));
+          newY = paddle.y - prevBall.radius;
+        }
+
+        // Brick collisions
+        setBricks(currentBricks => {
+          const updatedBricks = [...currentBricks];
+          let scoreIncrease = 0;
+          let hitDetected = false;
+
+          for (let i = 0; i < updatedBricks.length; i++) {
+            const brick = updatedBricks[i];
+            if (!brick.destroyed && 
+                newX + prevBall.radius >= brick.x && 
+                newX - prevBall.radius <= brick.x + brick.width &&
+                newY + prevBall.radius >= brick.y && 
+                newY - prevBall.radius <= brick.y + brick.height) {
+              
+              if (!hitDetected) {
+                newDy = -newDy;
+                hitDetected = true;
+              }
+
+              brick.hits += 1;
+              
+              if (brick.hits >= brick.maxHits) {
+                brick.destroyed = true;
+                
+                if (brick.type === 'bomb') {
+                  // Destroy surrounding bricks
+                  updatedBricks.forEach(otherBrick => {
+                    if (!otherBrick.destroyed) {
+                      const distance = Math.sqrt(
+                        Math.pow(otherBrick.x + otherBrick.width/2 - (brick.x + brick.width/2), 2) + 
+                        Math.pow(otherBrick.y + otherBrick.height/2 - (brick.y + brick.height/2), 2)
+                      );
+                      if (distance < 100) {
+                        otherBrick.destroyed = true;
+                        scoreIncrease += 100;
+                      }
+                    }
+                  });
+                  scoreIncrease += 500;
+                } else if (brick.type === 'strong') {
+                  scoreIncrease += 200;
+                } else {
+                  scoreIncrease += 100;
+                }
+              } else {
+                brick.color = brick.color === '#888888' ? '#AAAAAA' : '#888888';
+              }
+              
+              break;
+            }
+          }
+
+          if (scoreIncrease > 0) {
+            setScore(prev => prev + scoreIncrease);
+          }
+
+          // Check if all bricks destroyed
+          if (updatedBricks.every(brick => brick.destroyed)) {
+            setGameState('won');
+            saveLevelProgress();
+            toast.success('Level Complete! Well done!');
+          }
+
+          return updatedBricks;
+        });
+
+        return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
+      });
     }
-  }, [searchParams]);
+
+    renderGame();
+    animationRef.current = requestAnimationFrame(gameLoop);
+  }, [isPaused, gameState, paddle, renderGame]);
 
   const getDifficultyConfig = (levelNumber: number): DifficultyConfig => {
     if (levelNumber <= 10) {
@@ -163,7 +319,6 @@ const Game = () => {
           let maxHits = 1;
           let color = colors[row % colors.length];
 
-          // Determine brick type based on difficulty
           const rand = Math.random();
           if (rand < config.bombBrickChance) {
             brickType = 'bomb';
@@ -201,13 +356,11 @@ const Game = () => {
     
     console.log(`Initializing game for level ${currentLevel}`);
     
-    // Reset game state
     setScore(0);
     setLives(3);
     setGameState('playing');
     setIsPaused(false);
     
-    // Set up paddle
     const newPaddle = { 
       x: (800 - config.paddleWidth) / 2, 
       y: 550, 
@@ -216,21 +369,19 @@ const Game = () => {
     };
     setPaddle(newPaddle);
     
-    // Set up ball at paddle center
     const newBall = {
       x: newPaddle.x + newPaddle.width / 2,
-      y: newPaddle.y - 20, // Just above paddle
+      y: newPaddle.y - 20,
       dx: config.ballSpeed * (Math.random() > 0.5 ? 1 : -1),
-      dy: -config.ballSpeed, // Always start going up
+      dy: -config.ballSpeed,
       radius: 10,
       speed: config.ballSpeed
     };
     setBall(newBall);
     
-    // Set bricks
     setBricks(newBricks);
     
-    console.log(`Game initialized with ${newBricks.length} bricks, paddle at (${newPaddle.x}, ${newPaddle.y}), ball at (${newBall.x}, ${newBall.y})`);
+    console.log(`Game initialized with ${newBricks.length} bricks`);
   };
 
   const resetBallAndPaddle = () => {
@@ -287,201 +438,6 @@ const Game = () => {
     }
   };
 
-  const startGameLoop = () => {
-    const gameLoop = () => {
-      if (!isPaused && gameState === 'playing') {
-        updateGame();
-        renderGame();
-      } else {
-        renderGame(); // Still render when paused to show current state
-      }
-      gameLoopRef.current = requestAnimationFrame(gameLoop);
-    };
-    gameLoop();
-  };
-
-  const destroyBricksAroundBomb = (bombX: number, bombY: number) => {
-    setBricks(currentBricks => {
-      return currentBricks.map(brick => {
-        if (brick.destroyed) return brick;
-        
-        const distance = Math.sqrt(
-          Math.pow(brick.x + brick.width/2 - bombX, 2) + 
-          Math.pow(brick.y + brick.height/2 - bombY, 2)
-        );
-        
-        if (distance < 100) { // Bomb radius
-          setScore(prev => prev + 100);
-          return { ...brick, destroyed: true };
-        }
-        return brick;
-      });
-    });
-  };
-
-  const updateGame = () => {
-    // Update paddle with keyboard
-    if (keysRef.current['ArrowLeft']) {
-      setPaddle(prev => ({ ...prev, x: Math.max(0, prev.x - 8) }));
-    }
-    if (keysRef.current['ArrowRight']) {
-      setPaddle(prev => ({ ...prev, x: Math.min(800 - prev.width, prev.x + 8) }));
-    }
-
-    // Update ball position
-    setBall(prev => {
-      let newX = prev.x + prev.dx;
-      let newY = prev.y + prev.dy;
-      let newDx = prev.dx;
-      let newDy = prev.dy;
-
-      // Wall collisions
-      if (newX <= prev.radius || newX >= 800 - prev.radius) {
-        newDx = -newDx;
-        newX = prev.x + newDx; // Prevent ball from getting stuck in wall
-      }
-      if (newY <= prev.radius) {
-        newDy = -newDy;
-        newY = prev.y + newDy;
-      }
-
-      // Ball lost - lose a life
-      if (newY >= 600) {
-        setLives(currentLives => {
-          const newLives = currentLives - 1;
-          if (newLives <= 0) {
-            setGameState('levelFailed');
-            toast.error('Level Failed! All lives lost!');
-          } else {
-            toast.warning(`Life lost! ${newLives} lives remaining`);
-            setTimeout(() => resetBallAndPaddle(), 1000);
-          }
-          return newLives;
-        });
-        return prev; // Don't update ball position when life is lost
-      }
-
-      // Paddle collision
-      if (newY + prev.radius >= paddle.y && 
-          newY - prev.radius <= paddle.y + paddle.height &&
-          newX >= paddle.x && 
-          newX <= paddle.x + paddle.width) {
-        
-        // Calculate angle based on where ball hits paddle
-        const hitPos = (newX - paddle.x) / paddle.width;
-        const angle = (hitPos - 0.5) * Math.PI / 3; // Max 60 degree angle
-        
-        newDx = prev.speed * Math.sin(angle);
-        newDy = -Math.abs(prev.speed * Math.cos(angle));
-        newY = paddle.y - prev.radius; // Position ball just above paddle
-      }
-
-      // Brick collisions
-      setBricks(currentBricks => {
-        const updatedBricks = [...currentBricks];
-        let scoreIncrease = 0;
-        let hitDetected = false;
-
-        for (let i = 0; i < updatedBricks.length; i++) {
-          const brick = updatedBricks[i];
-          if (!brick.destroyed && 
-              newX + prev.radius >= brick.x && 
-              newX - prev.radius <= brick.x + brick.width &&
-              newY + prev.radius >= brick.y && 
-              newY - prev.radius <= brick.y + brick.height) {
-            
-            if (!hitDetected) {
-              newDy = -newDy;
-              hitDetected = true;
-            }
-
-            brick.hits += 1;
-            
-            if (brick.hits >= brick.maxHits) {
-              brick.destroyed = true;
-              
-              if (brick.type === 'bomb') {
-                destroyBricksAroundBomb(brick.x + brick.width/2, brick.y + brick.height/2);
-                scoreIncrease += 500;
-              } else if (brick.type === 'strong') {
-                scoreIncrease += 200;
-              } else {
-                scoreIncrease += 100;
-              }
-            } else {
-              // Visual feedback for multi-hit bricks
-              brick.color = brick.color === '#888888' ? '#AAAAAA' : '#888888';
-            }
-            
-            break;
-          }
-        }
-
-        if (scoreIncrease > 0) {
-          setScore(prev => prev + scoreIncrease);
-        }
-
-        // Check if all bricks destroyed
-        if (updatedBricks.every(brick => brick.destroyed)) {
-          setGameState('won');
-          saveLevelProgress();
-          toast.success('Level Complete! Well done!');
-        }
-
-        return updatedBricks;
-      });
-
-      return { ...prev, x: newX, y: newY, dx: newDx, dy: newDy };
-    });
-  };
-
-  const renderGame = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, 800, 600);
-
-    // Draw bricks
-    bricks.forEach(brick => {
-      if (!brick.destroyed) {
-        ctx.fillStyle = brick.color;
-        ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
-        
-        // Add border
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
-        
-        // Show hit count for multi-hit bricks
-        if (brick.maxHits > 1) {
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '12px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText(
-            `${brick.maxHits - brick.hits}`, 
-            brick.x + brick.width/2, 
-            brick.y + brick.height/2 + 4
-          );
-        }
-      }
-    });
-
-    // Draw paddle
-    ctx.fillStyle = '#ff6b6b';
-    ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
-
-    // Draw ball
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-  };
-
   const saveLevelProgress = () => {
     const saved = localStorage.getItem('brickBreakerProgress');
     const data = saved ? JSON.parse(saved) : {};
@@ -493,7 +449,6 @@ const Game = () => {
       unlocked: true 
     };
     
-    // Unlock next level
     if (level < 100) {
       data[`level_${level + 1}`] = { 
         stars: data[`level_${level + 1}`]?.stars || 0,
@@ -506,7 +461,6 @@ const Game = () => {
   };
 
   const calculateStars = () => {
-    // Star calculation based on score and lives remaining
     const baseScore = bricks.length * 100;
     const lifeBonus = lives * 500;
     const totalPossible = baseScore + lifeBonus;
@@ -531,6 +485,55 @@ const Game = () => {
   const quitToMenu = () => {
     navigate('/level-select');
   };
+
+  // Initialize game on component mount
+  useEffect(() => {
+    const levelParam = searchParams.get('level');
+    if (levelParam) {
+      const newLevel = parseInt(levelParam);
+      setLevel(newLevel);
+      initializeGame(newLevel);
+    } else {
+      initializeGame(1);
+    }
+    
+    document.title = `Level ${level} - Brick Breaker`;
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, []);
+
+  // Start game loop
+  useEffect(() => {
+    animationRef.current = requestAnimationFrame(gameLoop);
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [gameLoop]);
+
+  // Level change handler
+  useEffect(() => {
+    const levelParam = searchParams.get('level');
+    if (levelParam) {
+      const newLevel = parseInt(levelParam);
+      if (newLevel !== level) {
+        setLevel(newLevel);
+        initializeGame(newLevel);
+      }
+    }
+  }, [searchParams]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative">
@@ -611,7 +614,6 @@ const Game = () => {
         </div>
       )}
 
-      {/* Game State Overlays */}
       {gameState === 'won' && (
         <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-green-800 p-8 rounded-xl text-white text-center space-y-4">
