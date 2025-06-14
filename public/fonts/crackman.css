@@ -7,17 +7,18 @@
   font-display: swap;
 }
 
-/* Alternative cracked text effect using CSS */
+/* Enhanced cracked text effect using CSS to mimic broken/shattered letters */
 .cracked-text {
-  font-family: 'Courier New', monospace;
-  font-weight: bold;
-  text-shadow: 
-    2px 2px 0 #ff0000,
-    -2px -2px 0 #ffff00,
-    2px -2px 0 #00ff00,
-    -2px 2px 0 #0000ff;
-  filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.5));
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  font-weight: 900;
   position: relative;
+  color: #ffffff;
+  text-shadow: 
+    0 0 0 #000,
+    1px 1px 0 #000,
+    2px 2px 0 #000,
+    3px 3px 0 #000,
+    4px 4px 8px rgba(0,0,0,0.6);
 }
 
 .cracked-text::before {
@@ -26,8 +27,87 @@
   top: 0;
   left: 0;
   color: transparent;
-  background: linear-gradient(45deg, #ff0000, #ffff00, #00ff00, #0000ff);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.8) 2px,
+    rgba(0,0,0,0.8) 4px
+  );
   background-clip: text;
   -webkit-background-clip: text;
-  mix-blend-mode: overlay;
+  z-index: 1;
 }
+
+.cracked-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: transparent;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.6) 3px,
+    rgba(0,0,0,0.6) 5px
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  z-index: 2;
+}
+
+/* Individual letter crack effects */
+.cracked-letter {
+  display: inline-block;
+  position: relative;
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 
+    2px 2px 0 #000,
+    -1px -1px 0 #333,
+    1px -1px 0 #333,
+    -1px 1px 0 #333;
+}
+
+.cracked-letter::before {
+  content: '';
+  position: absolute;
+  top: 10%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #000 20%, transparent 40%, #000 60%, transparent 80%, #000 100%);
+  z-index: 3;
+  transform: rotate(-5deg);
+}
+
+.cracked-letter::after {
+  content: '';
+  position: absolute;
+  top: 60%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #000 30%, transparent 50%, #000 70%, transparent 100%);
+  z-index: 3;
+  transform: rotate(8deg);
+}
+
+/* Specific crack patterns for different letters */
+.cracked-letter:nth-child(1)::before { transform: rotate(-8deg); top: 30%; }
+.cracked-letter:nth-child(2)::before { transform: rotate(12deg); top: 25%; }
+.cracked-letter:nth-child(3)::before { transform: rotate(-15deg); top: 40%; }
+.cracked-letter:nth-child(4)::before { transform: rotate(10deg); top: 35%; }
+.cracked-letter:nth-child(5)::before { transform: rotate(-12deg); top: 20%; }
+.cracked-letter:nth-child(6)::before { transform: rotate(15deg); top: 45%; }
+.cracked-letter:nth-child(7)::before { transform: rotate(-10deg); top: 30%; }
+
+.cracked-letter:nth-child(1)::after { transform: rotate(15deg); top: 70%; }
+.cracked-letter:nth-child(2)::after { transform: rotate(-10deg); top: 65%; }
+.cracked-letter:nth-child(3)::after { transform: rotate(12deg); top: 75%; }
+.cracked-letter:nth-child(4)::after { transform: rotate(-8deg); top: 60%; }
+.cracked-letter:nth-child(5)::after { transform: rotate(18deg); top: 80%; }
+.cracked-letter:nth-child(6)::after { transform: rotate(-15deg); top: 55%; }
+.cracked-letter:nth-child(7)::after { transform: rotate(8deg); top: 70%; }

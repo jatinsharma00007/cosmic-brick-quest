@@ -57,7 +57,8 @@ const Index = () => {
       <span 
         className={`inline-block font-bold transition-all duration-1000 ${
           showShatter ? 'animate-shatter' : ''
-        } ${showCracked ? 'font-cracked cracked-text animate-crack-glow' : 'font-orbitron text-yellow-300'}`}
+        } ${showCracked ? 'cracked-letter' : 'font-orbitron text-yellow-300'}`}
+        data-text={children}
         style={{
           '--random-x': `${randomX}px`,
           '--random-y': `${randomY}px`,
