@@ -1,28 +1,33 @@
-
 import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { useNavigate } from 'react-router-dom';
 
 const Index = () => {
   const navigate = useNavigate();
-  const [isAnimating, setIsAnimating] = useState(false);
+  const [showCrack, setShowCrack] = useState(false);
   const [showShatter, setShowShatter] = useState(false);
   const [isZooming, setIsZooming] = useState(false);
+  const [screenFlicker, setScreenFlicker] = useState(false);
   const breakerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.title = "Brick Breaker - Classic Arcade Game";
     
-    // Trigger shatter animation after page load
-    const timer = setTimeout(() => {
-      setShowShatter(true);
-      setIsAnimating(true);
-    }, 1000);
+    // Show crack after 2 seconds
+    const crackTimer = setTimeout(() => {
+      setShowCrack(true);
+      setScreenFlicker(true);
+      
+      // Stop flicker after animation
+      setTimeout(() => setScreenFlicker(false), 300);
+    }, 2000);
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(crackTimer);
   }, []);
 
   const handleStart = () => {
+    // Trigger shatter and zoom
+    setShowShatter(true);
     setIsZooming(true);
     
     // Navigate after zoom animation completes
@@ -69,7 +74,7 @@ const Index = () => {
   return (
     <div className={`min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center relative overflow-hidden transition-all duration-1000 ${
       isZooming ? 'animate-zoom-in' : ''
-    }`}>
+    } ${screenFlicker ? 'animate-screen-flicker' : ''}`}>
       {/* Animated background elements */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute top-10 left-10 w-4 h-4 bg-yellow-900 rounded animate-pulse"></div>
@@ -94,7 +99,7 @@ const Index = () => {
 
       <div className={`text-center z-10 transition-all duration-1000 ${
         isZooming ? 'animate-fade-out' : 'animate-fade-in'
-      } ${isAnimating ? 'animate-shake' : ''}`}>
+      }`}>
         {/* BRICK - Built with brick-like divs */}
         <div className="flex justify-center items-center mb-4">
           {'BRICK'.split('').map((letter, index) => (
@@ -104,11 +109,34 @@ const Index = () => {
           ))}
         </div>
 
-        {/* BREAKER - Shatterable text */}
+        {/* BREAKER - With crack and shatter effects */}
         <div 
           ref={breakerRef}
           className="text-6xl font-bold mb-8 drop-shadow-xl tracking-wide relative"
         >
+          {/* Crack overlay */}
+          {showCrack && !showShatter && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div 
+                className="h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent animate-crack-appear"
+                style={{
+                  transform: 'rotate(-15deg)',
+                  width: '100%',
+                  boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)'
+                }}
+              />
+              <div 
+                className="absolute h-0.5 bg-gradient-to-r from-transparent via-yellow-400 to-transparent animate-crack-appear"
+                style={{
+                  transform: 'rotate(-15deg)',
+                  width: '80%',
+                  animationDelay: '0.2s',
+                  boxShadow: '0 0 8px rgba(251, 191, 36, 0.6)'
+                }}
+              />
+            </div>
+          )}
+          
           {'BREAKER'.split('').map((letter, index) => (
             <ShatterLetter key={index} index={index}>
               {letter}

@@ -1,4 +1,3 @@
-
 import type { Config } from "tailwindcss";
 
 export default {
@@ -86,6 +85,23 @@ export default {
 						height: '0'
 					}
 				},
+				'crack-appear': {
+					'0%': { 
+						width: '0%',
+						opacity: '0'
+					},
+					'50%': {
+						opacity: '1'
+					},
+					'100%': { 
+						width: '100%',
+						opacity: '0.8'
+					}
+				},
+				'screen-flicker': {
+					'0%, 100%': { opacity: '1' },
+					'50%': { opacity: '0.95' }
+				},
 				'shatter': {
 					'0%': { 
 						transform: 'translate(0, 0) rotate(0deg) scale(1)',
@@ -123,6 +139,8 @@ export default {
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
+				'crack-appear': 'crack-appear 1.5s ease-out forwards',
+				'screen-flicker': 'screen-flicker 0.1s ease-in-out 3',
 				'shatter': 'shatter 1.5s ease-out forwards',
 				'shake': 'shake 0.5s ease-in-out',
 				'zoom-in': 'zoom-in 1.5s ease-in-out forwards',
