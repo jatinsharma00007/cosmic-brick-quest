@@ -1,52 +1,148 @@
 
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { useNavigate } from 'react-router-dom';
 
 const Index = () => {
   const navigate = useNavigate();
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showShatter, setShowShatter] = useState(false);
+  const [isZooming, setIsZooming] = useState(false);
+  const breakerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.title = "Brick Breaker - Classic Arcade Game";
+    
+    // Trigger shatter animation after page load
+    const timer = setTimeout(() => {
+      setShowShatter(true);
+      setIsAnimating(true);
+    }, 1000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   const handleStart = () => {
-    navigate('/level-select');
+    setIsZooming(true);
+    
+    // Navigate after zoom animation completes
+    setTimeout(() => {
+      navigate('/level-select');
+    }, 1500);
   };
 
+  const BrickLetter = ({ children, delay = 0 }: { children: string; delay?: number }) => (
+    <div 
+      className="inline-block bg-gradient-to-b from-orange-400 to-red-600 text-white font-bold border-2 border-red-800 shadow-lg px-2 py-1 mx-1 transform hover:scale-105 transition-transform"
+      style={{
+        textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
+        animationDelay: `${delay}s`
+      }}
+    >
+      {children}
+    </div>
+  );
+
+  const ShatterLetter = ({ children, index }: { children: string; index: number }) => {
+    const randomX = Math.random() * 400 - 200;
+    const randomY = Math.random() * 300 + 100;
+    const randomRotate = Math.random() * 360;
+    
+    return (
+      <span 
+        className={`inline-block font-bold text-yellow-300 transition-all duration-1000 ${
+          showShatter ? 'animate-shatter' : ''
+        }`}
+        style={{
+          '--random-x': `${randomX}px`,
+          '--random-y': `${randomY}px`,
+          '--random-rotate': `${randomRotate}deg`,
+          animationDelay: `${index * 0.1}s`,
+          textShadow: '3px 3px 6px rgba(0,0,0,0.8)'
+        } as React.CSSProperties}
+      >
+        {children}
+      </span>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center relative overflow-hidden">
+    <div className={`min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center relative overflow-hidden transition-all duration-1000 ${
+      isZooming ? 'animate-zoom-in' : ''
+    }`}>
       {/* Animated background elements */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute top-10 left-10 w-4 h-4 bg-yellow-900 rounded animate-pulse"></div>
         <div className="absolute top-20 right-20 w-6 h-6 bg-green-900 rounded animate-bounce"></div>
         <div className="absolute bottom-20 left-20 w-5 h-5 bg-red-900 rounded animate-ping"></div>
         <div className="absolute bottom-10 right-10 w-3 h-3 bg-blue-900 rounded animate-pulse"></div>
+        
+        {/* Floating brick particles */}
+        {[...Array(8)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute w-3 h-2 bg-orange-600 opacity-20 animate-pulse"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${i * 0.5}s`,
+              animationDuration: `${2 + Math.random() * 2}s`
+            }}
+          />
+        ))}
       </div>
 
-      <div className="text-center z-10 animate-fade-in">
-        <h1 className="text-8xl font-bold text-white mb-4 drop-shadow-2xl tracking-wider">
-          BRICK
-        </h1>
-        <h2 className="text-6xl font-bold text-yellow-300 mb-8 drop-shadow-xl tracking-wide">
-          BREAKER
-        </h2>
+      <div className={`text-center z-10 transition-all duration-1000 ${
+        isZooming ? 'animate-fade-out' : 'animate-fade-in'
+      } ${isAnimating ? 'animate-shake' : ''}`}>
+        {/* BRICK - Built with brick-like divs */}
+        <div className="flex justify-center items-center mb-4">
+          {'BRICK'.split('').map((letter, index) => (
+            <BrickLetter key={index} delay={index * 0.1}>
+              {letter}
+            </BrickLetter>
+          ))}
+        </div>
+
+        {/* BREAKER - Shatterable text */}
+        <div 
+          ref={breakerRef}
+          className="text-6xl font-bold mb-8 drop-shadow-xl tracking-wide relative"
+        >
+          {'BREAKER'.split('').map((letter, index) => (
+            <ShatterLetter key={index} index={index}>
+              {letter}
+            </ShatterLetter>
+          ))}
+        </div>
         
-        <div className="space-y-6">
+        <div className={`space-y-6 transition-all duration-500 ${isZooming ? 'opacity-0' : 'opacity-100'}`}>
           <Button 
             onClick={handleStart}
-            className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-12 text-2xl rounded-2xl shadow-2xl transform hover:scale-105 transition-all duration-200"
+            disabled={isZooming}
+            className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-12 text-2xl rounded-2xl shadow-2xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            START GAME
+            {isZooming ? 'LAUNCHING...' : 'START GAME'}
           </Button>
         </div>
 
-        <div className="mt-12 text-white/80 text-lg">
+        <div className={`mt-12 text-white/80 text-lg transition-all duration-500 ${isZooming ? 'opacity-0' : 'opacity-100'}`}>
           <p>Break all bricks to advance to the next level!</p>
           <p className="text-sm mt-2">Use mouse or arrow keys to control the paddle</p>
+          
+          {/* Insert Coin style blinking message */}
+          <div className="mt-6 animate-pulse">
+            <p className="text-yellow-300 text-sm font-mono">
+              ► INSERT COIN TO CONTINUE ◄
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* Screen flash effect during zoom */}
+      {isZooming && (
+        <div className="absolute inset-0 bg-white animate-pulse opacity-20 z-20"></div>
+      )}
     </div>
   );
 };

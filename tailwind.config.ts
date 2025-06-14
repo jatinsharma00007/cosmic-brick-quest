@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -84,11 +85,49 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'shatter': {
+					'0%': { 
+						transform: 'translate(0, 0) rotate(0deg) scale(1)',
+						opacity: '1'
+					},
+					'100%': { 
+						transform: 'translate(var(--random-x, 100px), var(--random-y, 200px)) rotate(var(--random-rotate, 45deg)) scale(0.3)',
+						opacity: '0'
+					}
+				},
+				'shake': {
+					'0%, 100%': { transform: 'translateX(0)' },
+					'10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-5px)' },
+					'20%, 40%, 60%, 80%': { transform: 'translateX(5px)' }
+				},
+				'zoom-in': {
+					'0%': { transform: 'scale(1)' },
+					'100%': { transform: 'scale(20)' }
+				},
+				'fade-out': {
+					'0%': { opacity: '1' },
+					'100%': { opacity: '0' }
+				},
+				'brick-fall': {
+					'0%': { 
+						transform: 'translate(0, 0) rotate(0deg)',
+						opacity: '1'
+					},
+					'100%': { 
+						transform: 'translate(var(--fall-x, 0px), 300px) rotate(var(--fall-rotate, 180deg))',
+						opacity: '0'
+					}
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'shatter': 'shatter 1.5s ease-out forwards',
+				'shake': 'shake 0.5s ease-in-out',
+				'zoom-in': 'zoom-in 1.5s ease-in-out forwards',
+				'fade-out': 'fade-out 0.5s ease-out forwards',
+				'brick-fall': 'brick-fall 2s ease-in forwards'
 			}
 		}
 	},
