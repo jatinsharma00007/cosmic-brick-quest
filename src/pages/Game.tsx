@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Pause, Play, Home, Menu, Heart, X, RefreshCcw } from 'lucide-react';
 import { toast } from 'sonner';
+import React from 'react';
 
 interface Brick {
   x: number;
@@ -40,6 +41,14 @@ interface DifficultyConfig {
   emptyChance: number;
   strongBrickChance: number;
   bombBrickChance: number;
+}
+
+// Floating score type
+interface FloatingScore {
+  id: number;
+  x: number;
+  y: number;
+  value: number;
 }
 
 // Add game settings configuration at the top of the file, before the component
@@ -93,6 +102,41 @@ const GAME_SETTINGS = {
       bombBrickChance: 0.1
     }
   }
+};
+
+// XP Bar with Stars component
+const XPBarWithStars = ({ score, maxScore, stars }: { score: number, maxScore: number, stars: number }) => {
+  const percent = Math.min(100, (score / maxScore) * 100);
+  return (
+    <div className="flex flex-col items-center w-[180px]">
+      <div className="flex justify-between w-full mb-1 px-2">
+        {[0, 1, 2].map(i => (
+          <svg
+            key={i}
+            width="32" height="32" viewBox="0 0 32 32"
+            className="drop-shadow"
+            style={{ filter: 'drop-shadow(0 2px 2px #0008)' }}
+          >
+            <polygon
+              points="16,2 20,12 31,12 22,19 25,30 16,23 7,30 10,19 1,12 12,12"
+              fill={i < stars ? '#FFD700' : '#444'}
+              stroke="#C9A100"
+              strokeWidth="2"
+            />
+          </svg>
+        ))}
+      </div>
+      <div className="relative w-full h-6 rounded-full border-4 border-yellow-700 bg-gradient-to-b from-blue-200 to-blue-400 overflow-hidden shadow-lg">
+        <div
+          className="absolute left-0 top-0 h-full bg-gradient-to-r from-yellow-300 to-green-400 transition-all duration-500"
+          style={{ width: `${percent}%` }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-800 drop-shadow">
+          {score} / {maxScore}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const Game = () => {
@@ -149,6 +193,18 @@ const Game = () => {
   // Add a ref to ensure we only save once per win
   const hasSavedWinRef = useRef(false);
 
+  const [bricksBroken, setBricksBroken] = useState(0);
+  const [floatingScores, setFloatingScores] = useState<FloatingScore[]>([]);
+  const [levelStartTime, setLevelStartTime] = useState<number>(Date.now());
+  const [liveStars, setLiveStars] = useState(0);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryData, setSummaryData] = useState<any>(null);
+  const floatingScoreId = useRef(0);
+
+  // Calculate max possible score for XP bar
+  const maxPossibleScore = bricks.length * 100 + GAME_SETTINGS.lives * 500;
+  const xpPercent = Math.min(100, (score / maxPossibleScore) * 100);
+
   // Update refs when state changes
   useEffect(() => {
     gameStateRef.current = gameState;
@@ -180,6 +236,11 @@ const Game = () => {
   useEffect(() => {
     livesRef.current = lives;
   }, [lives]);
+
+  // Live star calculation
+  useEffect(() => {
+    setLiveStars(calculateStars());
+  }, [score, lives, bricks]);
 
   const renderGame = useCallback(() => {
     const canvas = canvasRef.current;
@@ -400,6 +461,8 @@ const Game = () => {
         let scoreIncrease = 0;
         let hitDetected = false;
         const currentBall = ballRef.current;
+        let newBricksBroken = 0;
+        let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
 
         for (let i = 0; i < updatedBricks.length; i++) {
           const brick = updatedBricks[i];
@@ -418,6 +481,16 @@ const Game = () => {
 
             if (brick.hits >= brick.maxHits) {
               brick.destroyed = true;
+              newBricksBroken++;
+
+              // Floating score animation: get canvas offset and brick center
+              const { left, top } = getCanvasOffset();
+              const fx = left + brick.x + brick.width / 2;
+              const fy = top + brick.y + brick.height / 2;
+              let value = 100;
+              if (brick.type === 'bomb') value = 500;
+              if (brick.type === 'strong') value = 200;
+              floatingScoreToAdd = { x: fx, y: fy, value };
 
               if (brick.type === 'bomb') {
                 // Optimize bomb explosion by using a more efficient distance calculation
@@ -453,15 +526,42 @@ const Game = () => {
         if (scoreIncrease > 0) {
           setScore(prev => prev + scoreIncrease);
         }
+        if (newBricksBroken > 0) {
+          setBricksBroken(prev => prev + newBricksBroken);
+        }
+        if (floatingScoreToAdd) {
+          setFloatingScores(prev => [
+            ...prev,
+            {
+              id: floatingScoreId.current++,
+              x: floatingScoreToAdd.x,
+              y: floatingScoreToAdd.y,
+              value: floatingScoreToAdd.value,
+            },
+          ]);
+          // Remove after 1s
+          setTimeout(() => {
+            setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
+          }, 1000);
+        }
 
         if (updatedBricks.every(brick => brick.destroyed)) {
-          // Save progress immediately when level is completed, only once
           if (!hasSavedWinRef.current) {
             const highScore = saveLevelProgress();
             setScore(highScore);
             hasSavedWinRef.current = true;
           }
           setGameState('won');
+          // Show summary modal after short delay
+          setTimeout(() => {
+            setShowSummary(true);
+            setSummaryData({
+              time: Math.floor((Date.now() - levelStartTime) / 1000),
+              stars: liveStars,
+              score,
+              // comboBonus: ... (to be implemented)
+            });
+          }, 800);
         }
 
         return updatedBricks;
@@ -560,6 +660,7 @@ const Game = () => {
     setReadyStateContext('start');
     setGameState('ready');
     setIsPaused(false);
+    setBricksBroken(0);
     
     const newPaddle = { 
       x: (800 - config.paddleWidth) / 2, 
@@ -695,10 +796,11 @@ const Game = () => {
   const resetLevel = useCallback(() => {
     isInitializedRef.current = false;
     initializeGame(level);
-    setReadyStateContext('restart');  // New context for restart
+    setReadyStateContext('start');
     setGameState('ready');
     setIsPaused(true);
     setShowMenu(false);
+    setBricksBroken(0);
   }, [level, initializeGame]);
 
   const quitToMenu = () => {
@@ -765,6 +867,14 @@ const Game = () => {
           showSubtitle: true
         };
     }
+  };
+
+  // Helper: get canvas position for floating score
+  const getCanvasOffset = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { left: 0, top: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return { left: rect.left, top: rect.top };
   };
 
   useEffect(() => {
@@ -867,24 +977,59 @@ const Game = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative">
+      {/* Header Bar */}
       <div className="bg-black/50 text-white p-4 flex justify-between items-center">
         <div className="font-bold text-lg">Level {level}/100</div>
-        <div className="font-bold text-xl">Score: {score}</div>
-        <div className="flex items-center gap-4">
+        {/* HUD Bar with XP Bar and Stars in header */}
+        <div className="flex gap-8 items-center">
+          <div className="flex items-center gap-1">
+            🧱 <span className="ml-1">{bricksBroken}</span>
+          </div>
+          <XPBarWithStars score={score} maxScore={maxPossibleScore} stars={liveStars} />
           <div className="flex items-center gap-1">
             {Array.from({ length: lives }, (_, i) => (
-              <Heart key={i} size={20} className="text-red-500 fill-red-500" />
+              <Heart key={i} size={18} className="text-red-500 fill-red-500" />
             ))}
           </div>
-          <Button 
-            onClick={handleMenuOpen}
-            variant="ghost" 
-            size="icon"
-            className="text-white hover:bg-white/20"
-          >
-            <Menu size={24} />
-          </Button>
         </div>
+        <Button
+          onClick={handleMenuOpen}
+          variant="ghost"
+          size="icon"
+          className="text-white hover:bg-white/20"
+        >
+          <Menu size={24} />
+        </Button>
+      </div>
+
+      {/* Floating Score Animations */}
+      <div className="absolute left-0 top-0 w-full h-full pointer-events-none z-40">
+        {floatingScores.map(fs => (
+          <span
+            key={fs.id}
+            style={{
+              position: 'absolute',
+              left: fs.x,
+              top: fs.y,
+              color: '#ffe066',
+              fontWeight: 700,
+              fontSize: 20,
+              pointerEvents: 'none',
+              opacity: 0.9,
+              animation: 'floatScore 1s ease-out forwards',
+            }}
+            className="select-none"
+          >
+            +{fs.value}
+          </span>
+        ))}
+        <style>{`
+          @keyframes floatScore {
+            0% { opacity: 0.9; transform: translateY(0); }
+            80% { opacity: 1; }
+            100% { opacity: 0; transform: translateY(-40px); }
+          }
+        `}</style>
       </div>
 
       <div className="flex justify-center pt-4">
@@ -984,7 +1129,7 @@ const Game = () => {
                     )}
                   </p>
                   <p>Lives Remaining: {lives}</p>
-                  <p>Stars Earned: {'★'.repeat(calculateStars())}</p>
+                  <p>Stars Earned: {'★'.repeat(liveStars)}</p>
                 </>
               );
             })()}
