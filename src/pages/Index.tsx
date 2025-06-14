@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 const Index = () => {
   const navigate = useNavigate();
-  const [showCrack, setShowCrack] = useState(false);
+  const [showCracked, setShowCracked] = useState(false);
   const [showShatter, setShowShatter] = useState(false);
   const [isZooming, setIsZooming] = useState(false);
   const [screenFlicker, setScreenFlicker] = useState(false);
@@ -13,9 +13,9 @@ const Index = () => {
   useEffect(() => {
     document.title = "Brick Breaker - Classic Arcade Game";
     
-    // Show crack after 2 seconds
+    // Show cracked font after 2 seconds
     const crackTimer = setTimeout(() => {
-      setShowCrack(true);
+      setShowCracked(true);
       setScreenFlicker(true);
       
       // Stop flicker after animation
@@ -55,15 +55,15 @@ const Index = () => {
     
     return (
       <span 
-        className={`inline-block font-bold text-yellow-300 transition-all duration-1000 ${
+        className={`inline-block font-bold transition-all duration-1000 ${
           showShatter ? 'animate-shatter' : ''
-        }`}
+        } ${showCracked ? 'font-cracked cracked-text animate-crack-glow' : 'font-orbitron text-yellow-300'}`}
         style={{
           '--random-x': `${randomX}px`,
           '--random-y': `${randomY}px`,
           '--random-rotate': `${randomRotate}deg`,
-          animationDelay: `${index * 0.1}s`,
-          textShadow: '3px 3px 6px rgba(0,0,0,0.8)'
+          animationDelay: showShatter ? `${index * 0.1}s` : '0s',
+          textShadow: !showCracked ? '3px 3px 6px rgba(0,0,0,0.8)' : undefined,
         } as React.CSSProperties}
       >
         {children}
@@ -109,34 +109,13 @@ const Index = () => {
           ))}
         </div>
 
-        {/* BREAKER - With crack and shatter effects */}
+        {/* BREAKER - With font switching and shatter effects */}
         <div 
           ref={breakerRef}
-          className="text-6xl font-bold mb-8 drop-shadow-xl tracking-wide relative"
+          className={`text-6xl font-bold mb-8 drop-shadow-xl tracking-wide relative transition-font ${
+            showCracked ? 'animate-font-transition' : ''
+          }`}
         >
-          {/* Crack overlay */}
-          {showCrack && !showShatter && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div 
-                className="h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent animate-crack-appear"
-                style={{
-                  transform: 'rotate(-15deg)',
-                  width: '100%',
-                  boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)'
-                }}
-              />
-              <div 
-                className="absolute h-0.5 bg-gradient-to-r from-transparent via-yellow-400 to-transparent animate-crack-appear"
-                style={{
-                  transform: 'rotate(-15deg)',
-                  width: '80%',
-                  animationDelay: '0.2s',
-                  boxShadow: '0 0 8px rgba(251, 191, 36, 0.6)'
-                }}
-              />
-            </div>
-          )}
-          
           {'BREAKER'.split('').map((letter, index) => (
             <ShatterLetter key={index} index={index}>
               {letter}

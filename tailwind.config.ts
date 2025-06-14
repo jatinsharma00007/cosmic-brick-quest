@@ -18,6 +18,10 @@ export default {
 			}
 		},
 		extend: {
+			fontFamily: {
+				orbitron: ['Orbitron', 'sans-serif'],
+				cracked: ['CrackMan', 'Courier New', 'monospace'],
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
@@ -85,6 +89,28 @@ export default {
 						height: '0'
 					}
 				},
+				'font-transition': {
+					'0%': { 
+						opacity: '1',
+						transform: 'scale(1)'
+					},
+					'50%': {
+						opacity: '0.5',
+						transform: 'scale(1.05)'
+					},
+					'100%': { 
+						opacity: '1',
+						transform: 'scale(1)'
+					}
+				},
+				'crack-glow': {
+					'0%, 100%': { 
+						textShadow: '0 0 10px rgba(255, 0, 0, 0.5)'
+					},
+					'50%': {
+						textShadow: '0 0 20px rgba(255, 0, 0, 0.8), 0 0 30px rgba(255, 255, 0, 0.6)'
+					}
+				},
 				'crack-appear': {
 					'0%': { 
 						width: '0%',
@@ -139,7 +165,8 @@ export default {
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
-				'crack-appear': 'crack-appear 1.5s ease-out forwards',
+				'font-transition': 'font-transition 0.8s ease-in-out',
+				'crack-glow': 'crack-glow 2s ease-in-out infinite',
 				'screen-flicker': 'screen-flicker 0.1s ease-in-out 3',
 				'shatter': 'shatter 1.5s ease-out forwards',
 				'shake': 'shake 0.5s ease-in-out',

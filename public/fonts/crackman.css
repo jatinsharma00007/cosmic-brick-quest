@@ -1,0 +1,33 @@
+
+@font-face {
+  font-family: 'CrackMan';
+  src: url('data:font/truetype;base64,AAEAAAAOAIAAAwBgT1MvMj6lOiMAAADsAAAAYGNtYXAAfAAJAAABTAAAAFRnYXNwAAAAEAAAAaAAAAAIZ2x5ZgAiAEgAAAGoAAAAeGhlYWQU2cPjAAACIAAAADZoaGVhB+AECAAAAlgAAAAkaG10eAAKAAAAAAJ8AAAAFGxvY2EADAABAAACUAAAAADTEF6Z0AAACBAAAAACAAAAEgAA') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Alternative cracked text effect using CSS */
+.cracked-text {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  text-shadow: 
+    2px 2px 0 #ff0000,
+    -2px -2px 0 #ffff00,
+    2px -2px 0 #00ff00,
+    -2px 2px 0 #0000ff;
+  filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.5));
+  position: relative;
+}
+
+.cracked-text::before {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: transparent;
+  background: linear-gradient(45deg, #ff0000, #ffff00, #00ff00, #0000ff);
+  background-clip: text;
+  -webkit-background-clip: text;
+  mix-blend-mode: overlay;
+}
