@@ -57,14 +57,13 @@ const Index = () => {
       <span 
         className={`inline-block font-bold transition-all duration-1000 ${
           showShatter ? 'animate-shatter' : ''
-        } ${showCracked ? 'cracked-letter' : 'font-orbitron text-yellow-300'}`}
-        data-text={children}
+        } ${showCracked ? 'font-cracked text-red-400' : 'font-orbitron text-yellow-300'}`}
         style={{
           '--random-x': `${randomX}px`,
           '--random-y': `${randomY}px`,
           '--random-rotate': `${randomRotate}deg`,
           animationDelay: showShatter ? `${index * 0.1}s` : '0s',
-          textShadow: !showCracked ? '3px 3px 6px rgba(0,0,0,0.8)' : undefined,
+          textShadow: !showCracked ? '3px 3px 6px rgba(0,0,0,0.8)' : '2px 2px 4px rgba(0,0,0,0.8)',
         } as React.CSSProperties}
       >
         {children}

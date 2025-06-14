@@ -20,6 +20,7 @@ export default {
 		extend: {
 			fontFamily: {
 				orbitron: ['Orbitron', 'sans-serif'],
+				cracked: ['CrackMan', 'sans-serif'],
 			},
 			colors: {
 				border: 'hsl(var(--border))',
