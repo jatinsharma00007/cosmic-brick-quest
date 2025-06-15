@@ -22,6 +22,7 @@ const Index = () => {
     setTimeout(() => navigate('/level-select'), 1500);
   };
 
+
   // Helper for shatter animation
   const logoWords = [
     { text: "BRICK", className: "mb-2" },

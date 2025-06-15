@@ -21,6 +21,7 @@ export default {
 			fontFamily: {
 				crash: ['CrashCourseBB', 'sans-serif'],
 				orbitron: ['Orbitron', 'sans-serif'],
+				cracked: ['CrackMan', 'sans-serif'],
 			},
 			colors: {
 				border: 'hsl(var(--border))',
