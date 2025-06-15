@@ -433,23 +433,20 @@ const Game = () => {
         ctx.fillStyle = brick.color;
         ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
 
-        // Draw outer border
-        ctx.strokeStyle = '#ffffff';
+        // Draw outer border (darker color for both types)
+        ctx.strokeStyle = darkenHexColor(brick.color, 0.25);
         ctx.lineWidth = 2;
         ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
 
-        // Draw inner border for material bricks
-        if (brick.type === 'material' && brick.material) {
-          const borderWidth = 4;
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = borderWidth;
-          ctx.strokeRect(
-            brick.x + borderWidth / 2,
-            brick.y + borderWidth / 2,
-            brick.width - borderWidth,
-            brick.height - borderWidth
-          );
-        }
+        // Draw inner border (darker color for both types)
+        const inset = 4;
+        ctx.fillStyle = darkenHexColor(brick.color, 0.25);
+        ctx.fillRect(
+          brick.x + inset,
+          brick.y + inset,
+          brick.width - 2 * inset,
+          brick.height - 2 * inset
+        );
 
         // Reset shadow
         ctx.shadowColor = 'transparent';
@@ -461,6 +458,7 @@ const Game = () => {
           // Draw material name
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
           ctx.fillText(
             SCORE_SETTINGS.materialBricks[brick.material].name,
             brick.x + brick.width / 2,
@@ -1265,6 +1263,22 @@ const Game = () => {
 
     return { dx: newDx, dy: newDy, speed: newSpeed };
   };
+
+  // Helper to darken a hex color
+  function darkenHexColor(hex: string, amount: number = 0.2): string {
+    // Remove # if present
+    hex = hex.replace('#', '');
+    // Parse r, g, b
+    let r = parseInt(hex.substring(0, 2), 16);
+    let g = parseInt(hex.substring(2, 4), 16);
+    let b = parseInt(hex.substring(4, 6), 16);
+    // Darken each channel
+    r = Math.max(0, Math.floor(r * (1 - amount)));
+    g = Math.max(0, Math.floor(g * (1 - amount)));
+    b = Math.max(0, Math.floor(b * (1 - amount)));
+    // Return as hex
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative">
