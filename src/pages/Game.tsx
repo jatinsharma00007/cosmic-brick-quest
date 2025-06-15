@@ -97,7 +97,7 @@ const GAME_SETTINGS = {
 
 // Score settings
 const SCORE_SETTINGS = {
-  normalBrick: 1000,
+  normalBrick: 10,
   normalBrickColor: '#4B9CD3', // A nice medium blue color
   normalBrickShadow: '0 0 10px rgba(75, 156, 211, 0.5)',
   lifeBonus: 500,
