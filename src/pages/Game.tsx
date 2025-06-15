@@ -14,7 +14,8 @@ interface Brick {
   destroyed: boolean;
   hits: number;
   maxHits: number;
-  type: 'normal' | 'strong' | 'bomb';
+  type: 'normal' | 'material';
+  material?: keyof typeof SCORE_SETTINGS.materialBricks;
 }
 
 interface Ball {
@@ -39,8 +40,6 @@ interface DifficultyConfig {
   cols: number;
   paddleWidth: number;
   emptyChance: number;
-  strongBrickChance: number;
-  bombBrickChance: number;
 }
 
 // Floating score type
@@ -51,10 +50,10 @@ interface FloatingScore {
   value: number;
 }
 
-// Add game settings configuration at the top of the file, before the component
+// Game settings
 const GAME_SETTINGS = {
   ball: {
-    baseSpeed: 10,
+    baseSpeed: 5,
     radius: 10,
     initialY: 540
   },
@@ -73,35 +72,82 @@ const GAME_SETTINGS = {
       rows: 4,
       cols: 7,
       paddleWidth: 120,
-      emptyChance: 0.3,
-      strongBrickChance: 0,
-      bombBrickChance: 0
+      emptyChance: 0.3
     },
     level2: {
       rows: 6,
       cols: 8,
       paddleWidth: 100,
-      emptyChance: 0.25,
-      strongBrickChance: 0.1,
-      bombBrickChance: 0
+      emptyChance: 0.25
     },
     level3: {
       rows: 8,
       cols: 10,
       paddleWidth: 80,
-      emptyChance: 0.2,
-      strongBrickChance: 0.2,
-      bombBrickChance: 0.05
+      emptyChance: 0.2
     },
     level4: {
       rows: 10,
       cols: 12,
       paddleWidth: 70,
-      emptyChance: 0.15,
-      strongBrickChance: 0.3,
-      bombBrickChance: 0.1
+      emptyChance: 0.15
     }
   }
+};
+
+// Score settings
+const SCORE_SETTINGS = {
+  normalBrick: 1000,
+  normalBrickColor: '#4B9CD3', // A nice medium blue color
+  normalBrickShadow: '0 0 10px rgba(75, 156, 211, 0.5)',
+  lifeBonus: 500,
+  materialBricks: {
+    gold: {
+      name: 'Gold',
+      color: '#facc15',
+      points: 100,
+      effect: '0 0 15px rgba(250, 204, 21, 0.7)'
+    },
+    silver: {
+      name: 'Silver',
+      color: '#d1d5db',
+      points: 70,
+      effect: '0 0 15px rgba(209, 213, 219, 0.7)'
+    },
+    bronze: {
+      name: 'Bronze',
+      color: '#b45309',
+      points: 50,
+      effect: '0 0 15px rgba(180, 83, 9, 0.7)'
+    },
+    emerald: {
+      name: 'Emerald',
+      color: '#22c55e',
+      points: 120,
+      effect: '0 0 15px rgba(34, 197, 94, 0.7)'
+    },
+    ruby: {
+      name: 'Ruby',
+      color: '#ef4444',
+      points: 150,
+      effect: '0 0 15px rgba(239, 68, 68, 0.7)'
+    },
+    sapphire: {
+      name: 'Sapphire',
+      color: '#3b82f6',
+      points: 130,
+      effect: '0 0 15px rgba(59, 130, 246, 0.7)'
+    }
+  }
+};
+
+// Control settings
+const CONTROLS = {
+  moveLeft: ['ArrowLeft', 'a', 'A'],
+  moveRight: ['ArrowRight', 'd', 'D'],
+  pause: [' '],
+  menuOpen: ['m', 'M'],
+  menuClose: ['Escape'],
 };
 
 // XP Bar with Stars component
@@ -135,6 +181,102 @@ const XPBarWithStars = ({ score, maxScore, stars }: { score: number, maxScore: n
           {score} / {maxScore}
         </div>
       </div>
+    </div>
+  );
+};
+
+// Add Particle interface and component
+interface Particle {
+  id: number;
+  x: number;
+  y: number;
+  color: string;
+  shadow: string;
+  size: number;
+  rotation: number;
+  scale: number;
+  dx: number;
+  dy: number;
+  opacity: number;
+  shape: 'square' | 'triangle';
+}
+
+// Add particle settings
+const PARTICLE_SETTINGS = {
+  count: { min: 8, max: 12 },
+  size: { min: 4, max: 8 },
+  speed: { min: 3, max: 6 },
+  rotation: { min: -180, max: 180 },
+  scale: { min: 0.8, max: 1.2 },
+  duration: { min: 800, max: 1200 },
+  shapes: ['square', 'triangle'] as const
+};
+
+// Add particle generation function
+const generateParticles = (
+  x: number,
+  y: number,
+  color: string,
+  shadow: string,
+  count: number
+): Particle[] => {
+  const particles: Particle[] = [];
+  const brickWidth = 80; // Match the brick width from generateLevel
+  const brickHeight = 25; // Match the brick height from generateLevel
+
+  for (let i = 0; i < count; i++) {
+    // Generate particles within the brick's boundaries
+    const particleX = x - brickWidth / 2 + Math.random() * brickWidth;
+    const particleY = y - brickHeight / 2 + Math.random() * brickHeight;
+
+    const size = Math.random() * (PARTICLE_SETTINGS.size.max - PARTICLE_SETTINGS.size.min) + PARTICLE_SETTINGS.size.min;
+    const speed = Math.random() * (PARTICLE_SETTINGS.speed.max - PARTICLE_SETTINGS.speed.min) + PARTICLE_SETTINGS.speed.min;
+
+    // Calculate angle based on particle's position relative to brick center
+    const dx = particleX - x;
+    const dy = particleY - y;
+    const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * Math.PI / 2; // Add some randomness to the angle
+
+    particles.push({
+      id: Math.random(),
+      x: particleX,
+      y: particleY,
+      color,
+      shadow,
+      size,
+      rotation: Math.random() * (PARTICLE_SETTINGS.rotation.max - PARTICLE_SETTINGS.rotation.min) + PARTICLE_SETTINGS.rotation.min,
+      scale: Math.random() * (PARTICLE_SETTINGS.scale.max - PARTICLE_SETTINGS.scale.min) + PARTICLE_SETTINGS.scale.min,
+      dx: Math.cos(angle) * speed,
+      dy: Math.sin(angle) * speed,
+      opacity: 1,
+      shape: PARTICLE_SETTINGS.shapes[Math.floor(Math.random() * PARTICLE_SETTINGS.shapes.length)]
+    });
+  }
+  return particles;
+};
+
+// Add ParticleRenderer component
+const ParticleRenderer = ({ particles }: { particles: Particle[] }) => {
+  return (
+    <div className="absolute inset-0 pointer-events-none z-40">
+      {particles.map(particle => (
+        <div
+          key={particle.id}
+          className="absolute"
+          style={{
+            left: particle.x,
+            top: particle.y,
+            width: particle.size,
+            height: particle.size,
+            backgroundColor: particle.color,
+            boxShadow: particle.shadow,
+            transform: `rotate(${particle.rotation}deg) scale(${particle.scale})`,
+            opacity: particle.opacity,
+            transition: 'all 0.8s ease-out',
+            clipPath: particle.shape === 'triangle' ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none'
+          }}
+        />
+      ))}
     </div>
   );
 };
@@ -205,6 +347,10 @@ const Game = () => {
   const maxPossibleScore = bricks.length * 100 + GAME_SETTINGS.lives * 500;
   const xpPercent = Math.min(100, (score / maxPossibleScore) * 100);
 
+  // Add collision cooldown tracking
+  const collisionCooldownRef = useRef<number>(0);
+  const COLLISION_COOLDOWN = 5; // frames
+
   // Update refs when state changes
   useEffect(() => {
     gameStateRef.current = gameState;
@@ -274,28 +420,52 @@ const Game = () => {
     ctx.save();
     currentBricks.forEach(brick => {
       if (!brick.destroyed) {
+        // Draw brick shadow for material bricks
+        if (brick.type === 'material' && brick.material) {
+          const material = SCORE_SETTINGS.materialBricks[brick.material];
+          ctx.shadowColor = material.color;
+          ctx.shadowBlur = 10;
+          ctx.shadowOffsetX = 2;
+          ctx.shadowOffsetY = 2;
+        }
+
+        // Draw main brick
         ctx.fillStyle = brick.color;
         ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
 
+        // Draw outer border
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
 
-        if (brick.maxHits > 1) {
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '12px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText(
-            `${brick.maxHits - brick.hits}`, 
-            brick.x + brick.width/2, 
-            brick.y + brick.height/2 + 4
+        // Draw inner border for material bricks
+        if (brick.type === 'material' && brick.material) {
+          const borderWidth = 4;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = borderWidth;
+          ctx.strokeRect(
+            brick.x + borderWidth / 2,
+            brick.y + borderWidth / 2,
+            brick.width - borderWidth,
+            brick.height - borderWidth
           );
         }
 
-        if (brick.type === 'bomb') {
-          ctx.fillStyle = '#ffff00';
+        // Reset shadow
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        if (brick.type === 'material' && brick.material) {
+          // Draw material name
+          ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 10px Arial';
-          ctx.fillText('💣', brick.x + brick.width/2, brick.y + brick.height/2 + 3);
+          ctx.fillText(
+            SCORE_SETTINGS.materialBricks[brick.material].name,
+            brick.x + brick.width / 2,
+            brick.y + brick.height / 2 + 3
+          );
         }
       }
     });
@@ -394,14 +564,17 @@ const Game = () => {
         let newDx = prevBall.dx;
         let newDy = prevBall.dy;
 
-        // Wall collisions
-        if (newX <= prevBall.radius || newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
-          newDx = -newDx;
-          newX = prevBall.x + newDx;
+        // Wall collisions with bounce effect
+        if (newX <= prevBall.radius) {
+          newDx = Math.abs(newDx);
+          newX = prevBall.radius;
+        } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
+          newDx = -Math.abs(newDx);
+          newX = GAME_SETTINGS.canvas.width - prevBall.radius;
         }
         if (newY <= prevBall.radius) {
-          newDy = -newDy;
-          newY = prevBall.y + newDy;
+          newDy = Math.abs(newDy);
+          newY = prevBall.radius;
         }
 
         // Ball lost - lose a life
@@ -423,22 +596,27 @@ const Game = () => {
           return prevBall;
         }
 
-        // Paddle collision
+        // Enhanced paddle collision with angle calculation
         const currentPaddle = paddleRef.current;
         if (newY + prevBall.radius >= currentPaddle.y &&
           newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
           newX >= currentPaddle.x &&
           newX <= currentPaddle.x + currentPaddle.width) {
           
-          const hitPos = (newX - currentPaddle.x) / currentPaddle.width;
-          const angle = (hitPos - 0.5) * Math.PI / 3;
+          // Calculate hit position relative to paddle center (-1 to 1)
+          const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
 
-          const speed = GAME_SETTINGS.ball.baseSpeed;
+          // Calculate bounce angle (max 75 degrees)
+          const angle = hitPos * (Math.PI / 3);
+
+          // Maintain ball speed but adjust direction
+          const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
           newDx = speed * Math.sin(angle);
           newDy = -speed * Math.cos(angle);
 
-          newX = prevBall.x + newDx;
+          // Ensure ball doesn't get stuck in paddle
           newY = currentPaddle.y - prevBall.radius;
+
           return {
             ...prevBall,
             x: newX,
@@ -455,7 +633,7 @@ const Game = () => {
 
       setBall(updateBall);
 
-      // Brick collision detection
+      // Enhanced brick collision detection
       setBricks(currentBricks => {
         const updatedBricks = [...currentBricks];
         let scoreIncrease = 0;
@@ -464,67 +642,84 @@ const Game = () => {
         let newBricksBroken = 0;
         let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
 
+        // Check collision cooldown
+        if (collisionCooldownRef.current > 0) {
+          collisionCooldownRef.current--;
+          return updatedBricks;
+        }
+
         for (let i = 0; i < updatedBricks.length; i++) {
           const brick = updatedBricks[i];
-          if (!brick.destroyed && 
-            currentBall.x + currentBall.radius >= brick.x &&
-            currentBall.x - currentBall.radius <= brick.x + brick.width &&
-            currentBall.y + currentBall.radius >= brick.y &&
-            currentBall.y - currentBall.radius <= brick.y + brick.height) {
-
-            if (!hitDetected) {
-              setBall(prev => ({ ...prev, dy: -prev.dy }));
+          if (!brick.destroyed) {
+            if (isBallCollidingWithBrick(currentBall, brick)) {
+              // Resolve collision and update ball direction
+              const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
+              setBall(prev => ({ ...prev, dx, dy, speed }));
               hitDetected = true;
-            }
 
-            brick.hits += 1;
+              // Set collision cooldown
+              collisionCooldownRef.current = COLLISION_COOLDOWN;
 
-            if (brick.hits >= brick.maxHits) {
-              brick.destroyed = true;
-              newBricksBroken++;
+              brick.hits += 1;
 
-              // Floating score animation: get canvas offset and brick center
-              const { left, top } = getCanvasOffset();
-              const fx = left + brick.x + brick.width / 2;
-              const fy = top + brick.y + brick.height / 2;
-              let value = 100;
-              if (brick.type === 'bomb') value = 500;
-              if (brick.type === 'strong') value = 200;
-              floatingScoreToAdd = { x: fx, y: fy, value };
+              if (brick.hits >= brick.maxHits) {
+                brick.destroyed = true;
+                newBricksBroken++;
 
-              if (brick.type === 'bomb') {
-                // Optimize bomb explosion by using a more efficient distance calculation
-                const bombX = brick.x + brick.width / 2;
-                const bombY = brick.y + brick.height / 2;
-                const explosionRadius = 100;
-                const explosionRadiusSquared = explosionRadius * explosionRadius;
+                // Generate particles for brick breakage
+                const particleCount = Math.floor(
+                  Math.random() * (PARTICLE_SETTINGS.count.max - PARTICLE_SETTINGS.count.min) + PARTICLE_SETTINGS.count.min
+                );
 
-                updatedBricks.forEach(otherBrick => {
-                  if (!otherBrick.destroyed) {
-                    const dx = (otherBrick.x + otherBrick.width / 2) - bombX;
-                    const dy = (otherBrick.y + otherBrick.height / 2) - bombY;
-                    if (dx * dx + dy * dy < explosionRadiusSquared) {
-                      otherBrick.destroyed = true;
-                      scoreIncrease += 100;
-                    }
-                  }
-                });
-                scoreIncrease += 500;
-              } else if (brick.type === 'strong') {
-                scoreIncrease += 200;
-              } else {
-                scoreIncrease += 100;
+                let particleColor = SCORE_SETTINGS.normalBrickColor;
+                let particleShadow = SCORE_SETTINGS.normalBrickShadow;
+
+                if (brick.type === 'material' && brick.material) {
+                  const material = SCORE_SETTINGS.materialBricks[brick.material];
+                  particleColor = material.color;
+                  particleShadow = material.effect;
+                }
+
+                // Get canvas offset for correct positioning
+                const { left, top } = getCanvasOffset();
+                const brickCenterX = left + brick.x + brick.width / 2;
+                const brickCenterY = top + brick.y + brick.height / 2;
+
+                const newParticles = generateParticles(
+                  brickCenterX,
+                  brickCenterY,
+                  particleColor,
+                  particleShadow,
+                  particleCount
+                );
+
+                setParticles(prev => [...prev, ...newParticles]);
+
+                // Floating score animation
+                const fx = left + brick.x + brick.width / 2;
+                const fy = top + brick.y + brick.height / 2;
+                let value = SCORE_SETTINGS.normalBrick;
+
+                if (brick.type === 'material' && brick.material) {
+                  value = SCORE_SETTINGS.materialBricks[brick.material].points;
+                }
+
+                floatingScoreToAdd = { x: fx, y: fy, value };
+
+                if (brick.type === 'material' && brick.material) {
+                  scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
+                } else {
+                  scoreIncrease += SCORE_SETTINGS.normalBrick;
+                }
               }
-            } else {
-              brick.color = brick.color === '#888888' ? '#AAAAAA' : '#888888';
-            }
 
-            break;
+              break;
+            }
           }
         }
 
         if (scoreIncrease > 0) {
-          setScore(prev => prev + scoreIncrease);
+          setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
         }
         if (newBricksBroken > 0) {
           setBricksBroken(prev => prev + newBricksBroken);
@@ -539,7 +734,6 @@ const Game = () => {
               value: floatingScoreToAdd.value,
             },
           ]);
-          // Remove after 1s
           setTimeout(() => {
             setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
           }, 1000);
@@ -552,14 +746,12 @@ const Game = () => {
             hasSavedWinRef.current = true;
           }
           setGameState('won');
-          // Show summary modal after short delay
           setTimeout(() => {
             setShowSummary(true);
             setSummaryData({
               time: Math.floor((Date.now() - levelStartTime) / 1000),
               stars: liveStars,
               score,
-              // comboBonus: ... (to be implemented)
             });
           }, 800);
         }
@@ -598,13 +790,12 @@ const Game = () => {
   const generateLevel = (levelNumber: number): Brick[] => {
     const config = getDifficultyConfig(levelNumber);
     const newBricks: Brick[] = [];
-    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'];
+    const materialTypes = Object.keys(SCORE_SETTINGS.materialBricks) as Array<keyof typeof SCORE_SETTINGS.materialBricks>;
     
     const brickWidth = 80;
     const brickHeight = 25;
-    const padding = 5;
     const offsetTop = 80;
-    const totalWidth = config.cols * (brickWidth + padding) - padding;
+    const totalWidth = config.cols * brickWidth;
     const offsetLeft = (800 - totalWidth) / 2;
 
     console.log(`Generating level ${levelNumber} with config:`, config);
@@ -612,31 +803,32 @@ const Game = () => {
     for (let row = 0; row < config.rows; row++) {
       for (let col = 0; col < config.cols; col++) {
         if (Math.random() > config.emptyChance) {
-          let brickType: 'normal' | 'strong' | 'bomb' = 'normal';
+          let brickType: 'normal' | 'material' = 'normal';
           let maxHits = 1;
-          let color = colors[row % colors.length];
+          let color = SCORE_SETTINGS.normalBrickColor;
+          let material: keyof typeof SCORE_SETTINGS.materialBricks | undefined;
 
           const rand = Math.random();
-          if (rand < config.bombBrickChance) {
-            brickType = 'bomb';
+          if (rand < 0.3) {
+            // 30% chance for material bricks
+            brickType = 'material';
             maxHits = 1;
-            color = '#FF4444';
-          } else if (rand < config.bombBrickChance + config.strongBrickChance) {
-            brickType = 'strong';
-            maxHits = 2;
-            color = '#888888';
+            const randomMaterial = materialTypes[Math.floor(Math.random() * materialTypes.length)];
+            material = randomMaterial;
+            color = SCORE_SETTINGS.materialBricks[randomMaterial].color;
           }
 
           newBricks.push({
-            x: offsetLeft + col * (brickWidth + padding),
-            y: offsetTop + row * (brickHeight + padding),
+            x: offsetLeft + col * brickWidth,
+            y: offsetTop + row * brickHeight,
             width: brickWidth,
             height: brickHeight,
             color: color,
             destroyed: false,
             hits: 0,
             maxHits: maxHits,
-            type: brickType
+            type: brickType,
+            material
           });
         }
       }
@@ -690,18 +882,52 @@ const Game = () => {
     console.log(`Game initialized with ${newBricks.length} bricks`);
   }, [level]);
 
+  const handleMenuOpen = useCallback(() => {
+    setShowMenu(true);
+    setIsPaused(true);
+  }, []);
+
+  const handleMenuClose = useCallback(() => {
+    setShowMenu(false);
+    setReadyStateContext('resume');
+    setGameState('ready');
+    setIsPaused(true);
+  }, []);
+
+  const togglePause = useCallback(() => {
+    if (gameState === 'playing') {
+      setIsPaused(prev => !prev);
+    }
+  }, [gameState]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.code === 'Space') {
+    if (CONTROLS.pause.includes(e.key) || CONTROLS.pause.includes(e.code)) {
       e.preventDefault();
       togglePause();
+    } else if (CONTROLS.menuOpen.includes(e.key)) {
+      e.preventDefault();
+      handleMenuOpen();
+    } else if (CONTROLS.menuClose.includes(e.key)) {
+      e.preventDefault();
+      if (showMenu) handleMenuClose();
+    } else if (CONTROLS.moveLeft.includes(e.key) || CONTROLS.moveLeft.includes(e.code)) {
+      keysRef.current['ArrowLeft'] = true;
+    } else if (CONTROLS.moveRight.includes(e.key) || CONTROLS.moveRight.includes(e.code)) {
+      keysRef.current['ArrowRight'] = true;
     } else {
       keysRef.current[e.code] = true;
     }
-  }, []);
+  }, [showMenu, handleMenuOpen, handleMenuClose, togglePause]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
-    if (e.code !== 'Space') {
-      keysRef.current[e.code] = false;
+    if (!(CONTROLS.pause.includes(e.key) || CONTROLS.pause.includes(e.code))) {
+      if (CONTROLS.moveLeft.includes(e.key) || CONTROLS.moveLeft.includes(e.code)) {
+        keysRef.current['ArrowLeft'] = false;
+      } else if (CONTROLS.moveRight.includes(e.key) || CONTROLS.moveRight.includes(e.code)) {
+        keysRef.current['ArrowRight'] = false;
+      } else {
+        keysRef.current[e.code] = false;
+      }
     }
   }, []);
 
@@ -777,8 +1003,8 @@ const Game = () => {
   };
 
   const calculateStars = () => {
-    const baseScore = bricks.length * 100;
-    const lifeBonus = lives * 500;
+    const baseScore = bricks.length * SCORE_SETTINGS.normalBrick;
+    const lifeBonus = lives * SCORE_SETTINGS.lifeBonus;
     const totalPossible = baseScore + lifeBonus;
     const percentage = (score + lifeBonus) / totalPossible;
     
@@ -786,12 +1012,6 @@ const Game = () => {
     if (percentage >= 0.7) return 2;
     return 1;
   };
-
-  const togglePause = useCallback(() => {
-    if (gameState === 'playing') {
-      setIsPaused(prev => !prev);
-    }
-  }, [gameState]);
 
   const resetLevel = useCallback(() => {
     isInitializedRef.current = false;
@@ -806,18 +1026,6 @@ const Game = () => {
   const quitToMenu = () => {
     navigate('/level-select');
   };
-
-  const handleMenuOpen = useCallback(() => {
-    setShowMenu(true);
-    setIsPaused(true);
-  }, []);
-
-  const handleMenuClose = useCallback(() => {
-    setShowMenu(false);
-    setReadyStateContext('resume');
-    setGameState('ready');
-    setIsPaused(true);
-  }, []);
 
   const getReadyMessage = () => {
     switch (readyStateContext) {
@@ -896,7 +1104,7 @@ const Game = () => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     canvas.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseup', handleMouseUp);
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('dblclick', handleDoubleClick);
     canvas.addEventListener('contextmenu', handleContextMenu);
@@ -908,7 +1116,7 @@ const Game = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       canvas.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('dblclick', handleDoubleClick);
       canvas.removeEventListener('contextmenu', handleContextMenu);
@@ -974,6 +1182,89 @@ const Game = () => {
       hasSavedWinRef.current = false;
     }
   }, [gameState, level]);
+
+  // Update the Game component to include particles state
+  const [particles, setParticles] = useState<Particle[]>([]);
+
+  // Add particle animation function
+  const animateParticles = useCallback(() => {
+    setParticles(prevParticles => {
+      const updatedParticles = prevParticles.map(particle => ({
+        ...particle,
+        x: particle.x + particle.dx,
+        y: particle.y + particle.dy,
+        opacity: particle.opacity - 0.02,
+        rotation: particle.rotation + 5,
+        scale: particle.scale * 0.98
+      }));
+
+      // Remove particles that have faded out
+      return updatedParticles.filter(p => p.opacity > 0);
+    });
+  }, []);
+
+  // Add particle animation effect
+  useEffect(() => {
+    if (particles.length > 0) {
+      const animationFrame = requestAnimationFrame(animateParticles);
+      return () => cancelAnimationFrame(animationFrame);
+    }
+  }, [particles, animateParticles]);
+
+  // Update the collision helper functions
+  const isBallCollidingWithBrick = (ball: Ball, brick: Brick): boolean => {
+    const closestX = Math.max(brick.x, Math.min(ball.x, brick.x + brick.width));
+    const closestY = Math.max(brick.y, Math.min(ball.y, brick.y + brick.height));
+
+    const distanceX = ball.x - closestX;
+    const distanceY = ball.y - closestY;
+
+    return (distanceX ** 2 + distanceY ** 2) < (ball.radius ** 2);
+  };
+
+  const resolveBallBrickCollision = (ball: Ball, brick: Brick): { dx: number, dy: number, speed: number } => {
+    const ballCenterX = ball.x;
+    const ballCenterY = ball.y;
+
+    const brickCenterX = brick.x + brick.width / 2;
+    const brickCenterY = brick.y + brick.height / 2;
+
+    // Calculate normalized distance from ball to brick center
+    const dx = (ballCenterX - brickCenterX) / (brick.width / 2);
+    const dy = (ballCenterY - brickCenterY) / (brick.height / 2);
+
+    // Calculate collision normal
+    const normalX = Math.abs(dx) > Math.abs(dy) ? Math.sign(dx) : 0;
+    const normalY = Math.abs(dy) > Math.abs(dx) ? Math.sign(dy) : 0;
+
+    // Handle corner collisions
+    const isCornerCollision = Math.abs(dx) > 0.8 && Math.abs(dy) > 0.8;
+
+    let newDx = ball.dx;
+    let newDy = ball.dy;
+    let newSpeed = ball.speed;
+
+    if (isCornerCollision) {
+      // Corner collision: reflect both components
+      newDx = -ball.dx;
+      newDy = -ball.dy;
+      // Add extra speed for corner hits
+      newSpeed *= 1.1;
+    } else {
+      // Regular collision: reflect based on normal
+      if (normalX !== 0) newDx = -ball.dx;
+      if (normalY !== 0) newDy = -ball.dy;
+      // Standard speed increase
+      newSpeed *= 1.05;
+    }
+
+    // Ensure minimum speed
+    newSpeed = Math.max(newSpeed, GAME_SETTINGS.ball.baseSpeed);
+    // Cap maximum speed
+    newSpeed = Math.min(newSpeed, GAME_SETTINGS.ball.baseSpeed * 2);
+
+    return { dx: newDx, dy: newDy, speed: newSpeed };
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative">
@@ -1048,11 +1339,11 @@ const Game = () => {
         />
       </div>
 
-      <div className="text-center mt-4 text-white/80">
+      {/* <div className="text-center mt-4 text-white/80">
         <p>Use mouse or arrow keys to move paddle • Space to pause</p>
         <p className="text-sm">Lives: {lives} • Red bricks explode • Gray bricks need 2 hits</p>
         <p className="text-sm text-left ml-4 mt-2">FPS: {fps}</p>
-      </div>
+      </div> */}
 
       {showMenu && (
         <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -1067,7 +1358,10 @@ const Game = () => {
             </Button>
 
             <div className="text-center space-y-4 mt-4">
-              <h2 className="text-2xl font-bold mb-6"><Pause size={20} className="mr-2" /> Pause</h2>
+              <h2 className="text-2xl font-bold mb-6 flex items-center justify-center">
+                <Pause size={20} className="mr-2" />
+                Paused
+              </h2>
 
               <Button 
                 onClick={handleMenuClose}
@@ -1082,7 +1376,7 @@ const Game = () => {
                 className="w-full bg-blue-600 hover:bg-blue-700"
               >
                 <RefreshCcw size={20} className="mr-2" />
-                Restart Level
+                Restart
               </Button>
 
               <Button
@@ -1090,7 +1384,7 @@ const Game = () => {
                 className="w-full bg-red-600 hover:bg-red-700"
               >
                 <Home size={20} className="mr-2" />
-                Main Menu
+                Home
               </Button>
             </div>
           </div>
@@ -1191,6 +1485,9 @@ const Game = () => {
           </div>
         </div>
       )}
+
+      {/* Add ParticleRenderer */}
+      <ParticleRenderer particles={particles} />
     </div>
   );
 };

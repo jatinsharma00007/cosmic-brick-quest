@@ -19,6 +19,7 @@ export default {
 		},
 		extend: {
 			fontFamily: {
+				crash: ['CrashCourseBB', 'sans-serif'],
 				orbitron: ['Orbitron', 'sans-serif'],
 			},
 			colors: {

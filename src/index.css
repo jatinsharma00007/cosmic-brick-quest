@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* Import custom font */
-@import url('/fonts/crackman.css');
+
 
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. */
 
@@ -119,4 +119,20 @@
       0 0 10px rgba(255, 0, 0, 0.5);
     filter: drop-shadow(0 0 15px rgba(255, 255, 0, 0.3));
   }
+}
+
+@font-face {
+  font-family: 'CrashCourseBB';
+  src: url('/fonts/CrashcourseBB_reg.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'CrashCourseBB';
+  src: url('/fonts/CrashcourseBB_ital.ttf') format('truetype');
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
 }
