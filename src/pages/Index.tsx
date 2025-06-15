@@ -40,11 +40,11 @@ const Index = () => {
                 key={`${letter}-${i}-${isCracked ? 'cracked' : 'normal'}-${isShattering ? 'shattering' : 'intact'}`}
 
                 className={`
-  inline-block text-9xl font-bold tracking-wide relative transition-all duration-500
-  font-crash
-  ${isCracked ? 'text-red-500 cracked-text animate-crack-flicker' : 'text-red-500'}
-  ${isShattering ? 'breaker-shatter' : ''}
-`}
+                  inline-block text-9xl font-bold tracking-wide relative transition-all duration-500
+                  font-crash
+                  ${isCracked ? 'text-red-500 cracked-text animate-crack-flicker' : 'text-red-500'}
+                  ${isShattering ? 'breaker-shatter' : ''}
+                `}
 
                 style={{
                   animationDelay: isCracked ? `${i * 0.07 + wIdx * 0.2}s` : '0s',
