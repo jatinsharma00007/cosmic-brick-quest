@@ -4,6 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Pause, Play, Home, Menu, Heart, X, RefreshCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import React from 'react';
+import { GAME_SETTINGS, SCORE_SETTINGS, CONTROLS, GAME_SIZES } from '../lib/config';
+import { gameToOverlayCoords } from '../lib/utils';
+import ParticleEffect from '@/components/ParticleEffect';
+import { getParticleSettings } from '@/lib/particleConfig';
 
 interface Brick {
   x: number;
@@ -50,117 +54,56 @@ interface FloatingScore {
   value: number;
 }
 
-// Game settings
-const GAME_SETTINGS = {
-  ball: {
-    baseSpeed: 5,
-    radius: 10,
-    initialY: 540
-  },
-  paddle: {
-    height: 20,
-    moveSpeed: 10,
-    initialY: 550
-  },
-  canvas: {
-    width: 800,
-    height: 600
-  },
-  lives: 3,
-  difficulty: {
-    level1: {
-      rows: 4,
-      cols: 7,
-      paddleWidth: 120,
-      emptyChance: 0.3
-    },
-    level2: {
-      rows: 6,
-      cols: 8,
-      paddleWidth: 100,
-      emptyChance: 0.25
-    },
-    level3: {
-      rows: 8,
-      cols: 10,
-      paddleWidth: 80,
-      emptyChance: 0.2
-    },
-    level4: {
-      rows: 10,
-      cols: 12,
-      paddleWidth: 70,
-      emptyChance: 0.15
-    }
-  }
-};
-
-// Score settings
-const SCORE_SETTINGS = {
-  normalBrick: 10,
-  normalBrickColor: '#4B9CD3', // A nice medium blue color
-  normalBrickShadow: '0 0 10px rgba(75, 156, 211, 0.5)',
-  lifeBonus: 500,
-  materialBricks: {
-    gold: {
-      name: 'Gold',
-      color: '#facc15',
-      points: 100,
-      effect: '0 0 15px rgba(250, 204, 21, 0.7)'
-    },
-    silver: {
-      name: 'Silver',
-      color: '#d1d5db',
-      points: 70,
-      effect: '0 0 15px rgba(209, 213, 219, 0.7)'
-    },
-    bronze: {
-      name: 'Bronze',
-      color: '#b45309',
-      points: 50,
-      effect: '0 0 15px rgba(180, 83, 9, 0.7)'
-    },
-    emerald: {
-      name: 'Emerald',
-      color: '#22c55e',
-      points: 120,
-      effect: '0 0 15px rgba(34, 197, 94, 0.7)'
-    },
-    ruby: {
-      name: 'Ruby',
-      color: '#ef4444',
-      points: 150,
-      effect: '0 0 15px rgba(239, 68, 68, 0.7)'
-    },
-    sapphire: {
-      name: 'Sapphire',
-      color: '#3b82f6',
-      points: 130,
-      effect: '0 0 15px rgba(59, 130, 246, 0.7)'
-    }
-  }
-};
-
-// Control settings
-const CONTROLS = {
-  moveLeft: ['ArrowLeft', 'a', 'A'],
-  moveRight: ['ArrowRight', 'd', 'D'],
-  pause: [' '],
-  menuOpen: ['m', 'M'],
-  menuClose: ['Escape'],
-};
+// HUD Component
+interface GameHUDProps {
+  level: number;
+  bricksBroken: number;
+  score: number;
+  maxPossibleScore: number;
+  liveStars: number;
+  lives: number;
+  handleMenuOpen: () => void;
+}
+const GameHUD = React.memo(({ level, bricksBroken, score, maxPossibleScore, liveStars, lives, handleMenuOpen }: GameHUDProps) => (
+  <div className="bg-black/50 text-white p-2 sm:p-4 flex flex-wrap justify-between items-center gap-2">
+    <div className="font-bold text-base sm:text-lg">Level {level}/100</div>
+    <div className="flex gap-2 sm:gap-8 items-center">
+      <div className="flex items-center gap-1 text-sm sm:text-base">
+        🧱 <span className="ml-1">{bricksBroken}</span>
+      </div>
+      <XPBarWithStars score={score} maxScore={maxPossibleScore} stars={liveStars} />
+      <div className="flex items-center gap-1">
+        {Array.from({ length: lives }, (_, i) => (
+          <Heart key={i} size={16} className="text-red-500 fill-red-500 sm:w-[18px] sm:h-[18px]" />
+        ))}
+      </div>
+    </div>
+    <Button
+      onClick={handleMenuOpen}
+      onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleMenuOpen()}
+      variant="ghost"
+      size="icon"
+      className="text-white hover:bg-white/20"
+      role="button"
+      aria-label="Open Menu"
+      tabIndex={0}
+    >
+      <Menu size={25} className="sm:w-6 sm:h-6" />
+    </Button>
+  </div>
+));
 
 // XP Bar with Stars component
 const XPBarWithStars = ({ score, maxScore, stars }: { score: number, maxScore: number, stars: number }) => {
   const percent = Math.min(100, (score / maxScore) * 100);
   return (
-    <div className="flex flex-col items-center w-[180px]">
-      <div className="flex justify-between w-full mb-1 px-2">
+    <div className="flex flex-col items-center w-[120px] sm:w-[180px]">
+      <div className="flex justify-between w-full mb-1 px-1 sm:px-2">
         {[0, 1, 2].map(i => (
           <svg
             key={i}
-            width="32" height="32" viewBox="0 0 32 32"
-            className="drop-shadow"
+            width="24" height="24" viewBox="0 0 32 32"
+            className="w-6 h-6 sm:w-8 sm:h-8 drop-shadow"
             style={{ filter: 'drop-shadow(0 2px 2px #0008)' }}
           >
             <polygon
@@ -172,12 +115,12 @@ const XPBarWithStars = ({ score, maxScore, stars }: { score: number, maxScore: n
           </svg>
         ))}
       </div>
-      <div className="relative w-full h-6 rounded-full border-4 border-yellow-700 bg-gradient-to-b from-blue-200 to-blue-400 overflow-hidden shadow-lg">
+      <div className="relative w-full h-4 sm:h-6 rounded-full border-2 sm:border-4 border-yellow-700 bg-gradient-to-b from-blue-200 to-blue-400 overflow-hidden shadow-lg">
         <div
           className="absolute left-0 top-0 h-full bg-gradient-to-r from-yellow-300 to-green-400 transition-all duration-500"
           style={{ width: `${percent}%` }}
         />
-        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-800 drop-shadow">
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] sm:text-xs font-bold text-gray-800 drop-shadow">
           {score} / {maxScore}
         </div>
       </div>
@@ -185,101 +128,150 @@ const XPBarWithStars = ({ score, maxScore, stars }: { score: number, maxScore: n
   );
 };
 
-// Add Particle interface and component
-interface Particle {
+// Pause Menu Component
+interface PauseMenuProps {
+  handleMenuClose: () => void;
+  resetLevel: () => void;
+  quitToMenu: () => void;
+}
+const PauseMenu = React.memo(({ handleMenuClose, resetLevel, quitToMenu }: PauseMenuProps) => (
+  <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+    <div className="bg-gray-800 p-4 sm:p-8 rounded-xl text-white relative w-full max-w-[300px] sm:min-w-[300px]">
+      <Button
+        onClick={handleMenuClose}
+        onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleMenuClose()}
+        variant="ghost"
+        size="icon"
+        className="absolute top-2 right-2 text-white hover:bg-white/20"
+        aria-label="Close Menu"
+        tabIndex={0}
+      >
+        <X size={20} className="sm:w-6 sm:h-6" />
+      </Button>
+      <div className="text-center space-y-3 sm:space-y-4 mt-4">
+        <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center justify-center">
+          <Pause size={16} className="mr-2 sm:w-5 sm:h-5" />
+          Paused
+        </h2>
+        <Button onClick={handleMenuClose} className="w-full bg-green-600 hover:bg-green-700 text-sm sm:text-base">
+          <Play size={16} className="mr-2 sm:w-5 sm:h-5" /> Resume
+        </Button>
+        <Button onClick={resetLevel} className="w-full bg-blue-600 hover:bg-blue-700 text-sm sm:text-base">
+          <RefreshCcw size={16} className="mr-2 sm:w-5 sm:h-5" /> Restart
+        </Button>
+        <Button onClick={quitToMenu} className="w-full bg-red-600 hover:bg-red-700 text-sm sm:text-base">
+          <Home size={16} className="mr-2 sm:w-5 sm:h-5" /> Home
+        </Button>
+      </div>
+    </div>
+  </div>
+));
+
+// Level Complete Modal Component
+interface LevelCompleteModalProps {
+  level: number;
+  score: number;
+  lives: number;
+  liveStars: number;
+  navigate: (path: string) => void;
+  quitToMenu: () => void;
+}
+const LevelCompleteModal = React.memo(({ level, score, lives, liveStars, navigate, quitToMenu }: LevelCompleteModalProps) => {
+  const saved = localStorage.getItem('brickBreakerProgress');
+  const data = saved ? JSON.parse(saved) : {};
+  const levelData = data[`level_${level}`] || { score: 0 };
+  const isNewHighScore = score >= (levelData.score || 0);
+  return (
+    <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-green-800 p-4 sm:p-8 rounded-xl text-white text-center space-y-3 sm:space-y-4 w-full max-w-[300px] sm:min-w-[300px]">
+        <h2 className="text-2xl sm:text-3xl font-bold text-yellow-300">Level Complete!</h2>
+        <p className="text-lg sm:text-xl">
+          {isNewHighScore ? (
+            <>
+              High Score: {score}
+              {levelData.score > 0 && (
+                <span className="block text-yellow-300 text-sm sm:text-base mt-1">Previous: {levelData.score}</span>
+              )}
+            </>
+          ) : (
+            <>
+              Score: {score}
+              <span className="block text-yellow-300 text-sm sm:text-base mt-1">High Score: {levelData.score}</span>
+            </>
+          )}
+        </p>
+        <p className="text-sm sm:text-base">Lives Remaining: {lives}</p>
+        <p className="text-sm sm:text-base">Stars Earned: {'★'.repeat(liveStars)}</p>
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 sm:justify-center">
+          <Button onClick={() => navigate(`/game?level=${level + 1}`)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base" disabled={level >= 100}>
+            {level >= 100 ? 'Game Complete!' : 'Next Level'}
+          </Button>
+          <Button onClick={quitToMenu} className='w-full sm:w-auto text-black text-sm sm:text-base' variant="outline">
+            Level Select
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// Level Failed Modal Component
+interface LevelFailedModalProps {
+  score: number;
+  resetLevel: () => void;
+  quitToMenu: () => void;
+}
+const LevelFailedModal = React.memo(({ score, resetLevel, quitToMenu }: LevelFailedModalProps) => (
+  <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+    <div className="bg-red-800 p-4 sm:p-8 rounded-xl text-white text-center space-y-3 sm:space-y-4 w-full max-w-[300px] sm:min-w-[300px]">
+      <h2 className="text-2xl sm:text-3xl text-green-400 font-bold">Better luck next time!</h2>
+      <p className="text-lg sm:text-xl">All lives lost!</p>
+      <p className="text-sm sm:text-base">Score: {score}</p>
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 sm:justify-center">
+        <Button onClick={resetLevel} className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-sm sm:text-base">Try Again</Button>
+        <Button onClick={quitToMenu} className='w-full sm:w-auto text-green-600 text-sm sm:text-base' variant="outline">Level Select</Button>
+      </div>
+    </div>
+  </div>
+));
+
+// Debounced resize handler
+function useDebouncedResize(callback: () => void, delay = 100) {
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    const handler = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(callback, delay);
+    };
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, [callback, delay]);
+}
+
+// Helper: Calculate stars based on score and lives
+function calculateStars(score: number, lives: number, bricks: Brick[]): number {
+  const baseScore = bricks.length * SCORE_SETTINGS.normalBrick;
+  const lifeBonus = lives * SCORE_SETTINGS.lifeBonus;
+  const totalPossible = baseScore + lifeBonus;
+  const percentage = (score + lifeBonus) / totalPossible;
+  if (percentage >= 0.9) return 3;
+  if (percentage >= 0.7) return 2;
+  return 1;
+}
+
+// Helper: Calculate max possible score for XP bar
+function getMaxPossibleScore(bricks: Brick[]): number {
+  return bricks.length * 100 + GAME_SETTINGS.lives * 500;
+}
+
+// Add ParticleEffectState interface
+interface ParticleEffectState {
   id: number;
   x: number;
   y: number;
   color: string;
-  shadow: string;
-  size: number;
-  rotation: number;
-  scale: number;
-  dx: number;
-  dy: number;
-  opacity: number;
-  shape: 'square' | 'triangle';
+  glow: boolean;
 }
-
-// Add particle settings
-const PARTICLE_SETTINGS = {
-  count: { min: 8, max: 12 },
-  size: { min: 4, max: 8 },
-  speed: { min: 3, max: 6 },
-  rotation: { min: -180, max: 180 },
-  scale: { min: 0.8, max: 1.2 },
-  duration: { min: 800, max: 1200 },
-  shapes: ['square', 'triangle'] as const
-};
-
-// Add particle generation function
-const generateParticles = (
-  x: number,
-  y: number,
-  color: string,
-  shadow: string,
-  count: number
-): Particle[] => {
-  const particles: Particle[] = [];
-  const brickWidth = 80; // Match the brick width from generateLevel
-  const brickHeight = 25; // Match the brick height from generateLevel
-
-  for (let i = 0; i < count; i++) {
-    // Generate particles within the brick's boundaries
-    const particleX = x - brickWidth / 2 + Math.random() * brickWidth;
-    const particleY = y - brickHeight / 2 + Math.random() * brickHeight;
-
-    const size = Math.random() * (PARTICLE_SETTINGS.size.max - PARTICLE_SETTINGS.size.min) + PARTICLE_SETTINGS.size.min;
-    const speed = Math.random() * (PARTICLE_SETTINGS.speed.max - PARTICLE_SETTINGS.speed.min) + PARTICLE_SETTINGS.speed.min;
-
-    // Calculate angle based on particle's position relative to brick center
-    const dx = particleX - x;
-    const dy = particleY - y;
-    const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * Math.PI / 2; // Add some randomness to the angle
-
-    particles.push({
-      id: Math.random(),
-      x: particleX,
-      y: particleY,
-      color,
-      shadow,
-      size,
-      rotation: Math.random() * (PARTICLE_SETTINGS.rotation.max - PARTICLE_SETTINGS.rotation.min) + PARTICLE_SETTINGS.rotation.min,
-      scale: Math.random() * (PARTICLE_SETTINGS.scale.max - PARTICLE_SETTINGS.scale.min) + PARTICLE_SETTINGS.scale.min,
-      dx: Math.cos(angle) * speed,
-      dy: Math.sin(angle) * speed,
-      opacity: 1,
-      shape: PARTICLE_SETTINGS.shapes[Math.floor(Math.random() * PARTICLE_SETTINGS.shapes.length)]
-    });
-  }
-  return particles;
-};
-
-// Add ParticleRenderer component
-const ParticleRenderer = ({ particles }: { particles: Particle[] }) => {
-  return (
-    <div className="absolute inset-0 pointer-events-none z-40">
-      {particles.map(particle => (
-        <div
-          key={particle.id}
-          className="absolute"
-          style={{
-            left: particle.x,
-            top: particle.y,
-            width: particle.size,
-            height: particle.size,
-            backgroundColor: particle.color,
-            boxShadow: particle.shadow,
-            transform: `rotate(${particle.rotation}deg) scale(${particle.scale})`,
-            opacity: particle.opacity,
-            transition: 'all 0.8s ease-out',
-            clipPath: particle.shape === 'triangle' ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 'none'
-          }}
-        />
-      ))}
-    </div>
-  );
-};
 
 const Game = () => {
   const navigate = useNavigate();
@@ -351,6 +343,19 @@ const Game = () => {
   const collisionCooldownRef = useRef<number>(0);
   const COLLISION_COOLDOWN = 5; // frames
 
+  // Add particle effects
+  const [particleEffects, setParticleEffects] = useState<ParticleEffectState[]>([]);
+  const particleEffectId = useRef(0);
+
+  // Add mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Update refs when state changes
   useEffect(() => {
     gameStateRef.current = gameState;
@@ -385,7 +390,7 @@ const Game = () => {
 
   // Live star calculation
   useEffect(() => {
-    setLiveStars(calculateStars());
+    setLiveStars(calculateStars(score, lives, bricks));
   }, [score, lives, bricks]);
 
   const renderGame = useCallback(() => {
@@ -505,20 +510,26 @@ const Game = () => {
     }
 
     const config = getDifficultyConfig(level);
+    const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
+    const paddleWidth = sizes.paddleWidth;
+    const paddleHeight = sizes.paddleHeight;
     setPaddle(prev => ({
       ...prev,
-      x: (GAME_SETTINGS.canvas.width - prev.width) / 2,
-      y: GAME_SETTINGS.paddle.initialY
+      x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2,
+      y: GAME_SETTINGS.paddle.initialY,
+      width: paddleWidth,
+      height: paddleHeight,
     }));
 
     const speed = GAME_SETTINGS.ball.baseSpeed;
     const angle = Math.random() > 0.5 ? Math.PI / 4 : -Math.PI / 4;
+    const ballRadius = sizes.ballRadius;
     setBall(prev => ({
-      x: (GAME_SETTINGS.canvas.width - paddle.width) / 2 + paddle.width / 2,
+      x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2 + paddleWidth / 2,
       y: GAME_SETTINGS.ball.initialY,
       dx: speed * Math.sin(angle),
       dy: -speed * Math.cos(angle),
-      radius: GAME_SETTINGS.ball.radius,
+      radius: ballRadius,
       speed: speed,
       baseSpeed: speed
     }));
@@ -526,7 +537,7 @@ const Game = () => {
     setGameState('ready');
     setIsPaused(true);
     setMouseX(null);
-  }, [level, paddle.width, lives, gameState]);
+  }, [level, lives, gameState, isMobile]);
 
   const gameLoop = useCallback(() => {
     // Check both refs for game state
@@ -664,45 +675,37 @@ const Game = () => {
                 brick.destroyed = true;
                 newBricksBroken++;
 
-                // Generate particles for brick breakage
-                const particleCount = Math.floor(
-                  Math.random() * (PARTICLE_SETTINGS.count.max - PARTICLE_SETTINGS.count.min) + PARTICLE_SETTINGS.count.min
-                );
+                // Add particle effect with device-specific settings
+                const isMaterial = brick.type === 'material';
+                const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
+                const particleSettings = getParticleSettings();
 
-                let particleColor = SCORE_SETTINGS.normalBrickColor;
-                let particleShadow = SCORE_SETTINGS.normalBrickShadow;
+                setParticleEffects(prev => [
+                  ...prev,
+                  {
+                    id: particleEffectId.current++,
+                    x: brick.x + brick.width / 2,
+                    y: brick.y + brick.height / 2,
+                    color: brick.color,
+                    glow: shouldGlow,
+                    count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
+                    size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
+                    duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
+                    intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
+                  }
+                ]);
 
-                if (brick.type === 'material' && brick.material) {
-                  const material = SCORE_SETTINGS.materialBricks[brick.material];
-                  particleColor = material.color;
-                  particleShadow = material.effect;
-                }
-
-                // Get canvas offset for correct positioning
-                const { left, top } = getCanvasOffset();
-                const brickCenterX = left + brick.x + brick.width / 2;
-                const brickCenterY = top + brick.y + brick.height / 2;
-
-                const newParticles = generateParticles(
-                  brickCenterX,
-                  brickCenterY,
-                  particleColor,
-                  particleShadow,
-                  particleCount
-                );
-
-                setParticles(prev => [...prev, ...newParticles]);
-
-                // Floating score animation
-                const fx = left + brick.x + brick.width / 2;
-                const fy = top + brick.y + brick.height / 2;
+                // Floating score animation - use brick position
                 let value = SCORE_SETTINGS.normalBrick;
-
                 if (brick.type === 'material' && brick.material) {
                   value = SCORE_SETTINGS.materialBricks[brick.material].points;
                 }
 
-                floatingScoreToAdd = { x: fx, y: fy, value };
+                floatingScoreToAdd = {
+                  x: brick.x + brick.width / 2,
+                  y: brick.y + brick.height / 2,
+                  value
+                };
 
                 if (brick.type === 'material' && brick.material) {
                   scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
@@ -790,13 +793,12 @@ const Game = () => {
     const newBricks: Brick[] = [];
     const materialTypes = Object.keys(SCORE_SETTINGS.materialBricks) as Array<keyof typeof SCORE_SETTINGS.materialBricks>;
     
-    const brickWidth = 80;
-    const brickHeight = 25;
+    const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
+    const brickWidth = sizes.brickWidth;
+    const brickHeight = sizes.brickHeight;
     const offsetTop = 80;
     const totalWidth = config.cols * brickWidth;
-    const offsetLeft = (800 - totalWidth) / 2;
-
-    console.log(`Generating level ${levelNumber} with config:`, config);
+    const offsetLeft = (GAME_SETTINGS.canvas.width - totalWidth) / 2;
 
     for (let row = 0; row < config.rows; row++) {
       for (let col = 0; col < config.cols; col++) {
@@ -808,7 +810,6 @@ const Game = () => {
 
           const rand = Math.random();
           if (rand < 0.3) {
-            // 30% chance for material bricks
             brickType = 'material';
             maxHits = 1;
             const randomMaterial = materialTypes[Math.floor(Math.random() * materialTypes.length)];
@@ -831,8 +832,7 @@ const Game = () => {
         }
       }
     }
-    
-    console.log(`Generated ${newBricks.length} bricks for level ${levelNumber}`);
+
     return newBricks;
   };
 
@@ -842,9 +842,7 @@ const Game = () => {
     const currentLevel = levelNumber || level;
     const config = getDifficultyConfig(currentLevel);
     const newBricks = generateLevel(currentLevel);
-    
-    console.log(`Initializing game for level ${currentLevel}`);
-    
+
     setScore(0);
     setLives(GAME_SETTINGS.lives);
     setReadyStateContext('start');
@@ -852,23 +850,27 @@ const Game = () => {
     setIsPaused(false);
     setBricksBroken(0);
     
+    const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
+    const paddleWidth = sizes.paddleWidth;
+    const paddleHeight = sizes.paddleHeight;
     const newPaddle = { 
-      x: (800 - config.paddleWidth) / 2, 
+      x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2, 
       y: 550, 
-      width: config.paddleWidth, 
-      height: 20 
+      width: paddleWidth,
+      height: paddleHeight 
     };
     setPaddle(newPaddle);
     
     // Initialize ball with normalized velocity components
     const speed = GAME_SETTINGS.ball.baseSpeed;
     const angle = Math.random() > 0.5 ? Math.PI / 4 : -Math.PI / 4; // Random angle between -45 and 45 degrees
+    const ballRadius = sizes.ballRadius;
     const newBall = {
       x: newPaddle.x + newPaddle.width / 2,
       y: newPaddle.y - 20,
       dx: speed * Math.sin(angle),
       dy: -speed * Math.cos(angle),
-      radius: 10,
+      radius: ballRadius,
       speed: speed,
       baseSpeed: speed
     };
@@ -876,9 +878,7 @@ const Game = () => {
     
     setBricks(newBricks);
     isInitializedRef.current = true;
-    
-    console.log(`Game initialized with ${newBricks.length} bricks`);
-  }, [level]);
+  }, [level, isMobile]);
 
   const handleMenuOpen = useCallback(() => {
     setShowMenu(true);
@@ -974,7 +974,7 @@ const Game = () => {
     const saved = localStorage.getItem('brickBreakerProgress');
     const data = saved ? JSON.parse(saved) : {};
     
-    const stars = calculateStars();
+    const stars = calculateStars(score, lives, bricks);
     const currentLevelData = data[`level_${level}`] || { score: 0, stars: 0 };
 
     // Only update score if it's higher than the previous high score
@@ -998,17 +998,6 @@ const Game = () => {
     
     localStorage.setItem('brickBreakerProgress', JSON.stringify(data));
     return newScore;
-  };
-
-  const calculateStars = () => {
-    const baseScore = bricks.length * SCORE_SETTINGS.normalBrick;
-    const lifeBonus = lives * SCORE_SETTINGS.lifeBonus;
-    const totalPossible = baseScore + lifeBonus;
-    const percentage = (score + lifeBonus) / totalPossible;
-    
-    if (percentage >= 0.9) return 3;
-    if (percentage >= 0.7) return 2;
-    return 1;
   };
 
   const resetLevel = useCallback(() => {
@@ -1082,6 +1071,17 @@ const Game = () => {
     const rect = canvas.getBoundingClientRect();
     return { left: rect.left, top: rect.top };
   };
+
+  function gameToOverlayCoords(gameX: number, gameY: number): { x: number, y: number } {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const scaleX = canvas.clientWidth / canvas.width;
+    const scaleY = canvas.clientHeight / canvas.height;
+    return {
+      x: gameX * scaleX,
+      y: gameY * scaleY,
+    };
+  }
 
   useEffect(() => {
     const levelParam = searchParams.get('level');
@@ -1181,34 +1181,6 @@ const Game = () => {
     }
   }, [gameState, level]);
 
-  // Update the Game component to include particles state
-  const [particles, setParticles] = useState<Particle[]>([]);
-
-  // Add particle animation function
-  const animateParticles = useCallback(() => {
-    setParticles(prevParticles => {
-      const updatedParticles = prevParticles.map(particle => ({
-        ...particle,
-        x: particle.x + particle.dx,
-        y: particle.y + particle.dy,
-        opacity: particle.opacity - 0.02,
-        rotation: particle.rotation + 5,
-        scale: particle.scale * 0.98
-      }));
-
-      // Remove particles that have faded out
-      return updatedParticles.filter(p => p.opacity > 0);
-    });
-  }, []);
-
-  // Add particle animation effect
-  useEffect(() => {
-    if (particles.length > 0) {
-      const animationFrame = requestAnimationFrame(animateParticles);
-      return () => cancelAnimationFrame(animationFrame);
-    }
-  }, [particles, animateParticles]);
-
   // Update the collision helper functions
   const isBallCollidingWithBrick = (ball: Ball, brick: Brick): boolean => {
     const closestX = Math.max(brick.x, Math.min(ball.x, brick.x + brick.width));
@@ -1280,217 +1252,224 @@ const Game = () => {
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   }
 
+  // Add canvas scaling function
+  const scaleCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const container = canvas.parentElement;
+    if (!container) return;
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    const scale = Math.min(
+      containerWidth / GAME_SETTINGS.canvas.width,
+      containerHeight / GAME_SETTINGS.canvas.height
+    );
+
+    // Update canvas style dimensions
+    canvas.style.width = `${GAME_SETTINGS.canvas.width * scale}px`;
+    canvas.style.height = `${GAME_SETTINGS.canvas.height * scale}px`;
+
+    // Update game settings based on scale
+    const scaledSettings = {
+      ball: {
+        ...GAME_SETTINGS.ball,
+        radius: GAME_SETTINGS.ball.radius * scale
+      },
+      paddle: {
+        ...GAME_SETTINGS.paddle,
+        height: GAME_SETTINGS.paddle.height * scale,
+        moveSpeed: GAME_SETTINGS.paddle.moveSpeed * scale
+      }
+    };
+
+    return scaledSettings;
+  }, []);
+
+  // Debounce the resize event
+  useDebouncedResize(() => {
+    const scaledSettings = scaleCanvas();
+    if (scaledSettings) {
+      // Update ball and paddle dimensions
+      setBall(prev => ({
+        ...prev,
+        radius: scaledSettings.ball.radius
+      }));
+      setPaddle(prev => ({
+        ...prev,
+        height: scaledSettings.paddle.height
+      }));
+    }
+  }, 100);
+
+  // Add touch event handlers
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    e.preventDefault();
+    if (gameState === 'playing') {
+      setIsDragging(true);
+      const touch = e.touches[0];
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const newMouseX = (touch.clientX - rect.left) * scaleX;
+      setMouseX(newMouseX);
+    }
+  }, [gameState]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    e.preventDefault();
+    if (!isDragging || isPaused || gameState !== 'playing') return;
+
+    const touch = e.touches[0];
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const newMouseX = (touch.clientX - rect.left) * scaleX;
+    setMouseX(newMouseX);
+  }, [isDragging, isPaused, gameState]);
+
+  const handleTouchEnd = useCallback((e: TouchEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  // Add touch event listeners
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      canvas.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
       {/* Header Bar */}
-      <div className="bg-black/50 text-white p-4 flex justify-between items-center">
-        <div className="font-bold text-lg">Level {level}/100</div>
-        {/* HUD Bar with XP Bar and Stars in header */}
-        <div className="flex gap-8 items-center">
-          <div className="flex items-center gap-1">
-            🧱 <span className="ml-1">{bricksBroken}</span>
-          </div>
-          <XPBarWithStars score={score} maxScore={maxPossibleScore} stars={liveStars} />
-          <div className="flex items-center gap-1">
-            {Array.from({ length: lives }, (_, i) => (
-              <Heart key={i} size={18} className="text-red-500 fill-red-500" />
+      <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} />
+
+      {/* Game Container */}
+      <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative">
+        <div
+          className={`relative w-full mx-auto ${isMobile ? '' : 'max-w-[800px] aspect-[4/3]'}`}
+          style={isMobile ? { height: '80vh', maxWidth: '100vw', aspectRatio: '4/3' } : {}}
+        >
+          {/* Game Grid Container */}
+          <div className="absolute inset-0 grid" style={{
+            gridTemplateColumns: `repeat(${GAME_SETTINGS.canvas.width / 80}, 1fr)`,
+            gridTemplateRows: `repeat(${GAME_SETTINGS.canvas.height / 25}, 1fr)`,
+          }}>
+            {/* Particle Effects */}
+            {particleEffects.map(effect => (
+              <ParticleEffect
+                key={effect.id}
+                x={effect.x}
+                y={effect.y}
+                color={effect.color}
+                count={effect.glow ? 15 : 12}
+                size={effect.glow ? 5 : 4}
+                duration={effect.glow ? 1500 : 1200}
+                intensity={effect.glow ? 1.2 : 1}
+                glow={effect.glow}
+              />
             ))}
+
+            {/* Floating Score Overlay */}
+            <div className="absolute inset-0 pointer-events-none z-40">
+              {floatingScores.map(fs => {
+                const { x, y } = gameToOverlayCoords(fs.x, fs.y);
+                const canvas = canvasRef.current;
+                if (!canvas) return null;
+                const scaleX = canvas.clientWidth / canvas.width;
+                return (
+                  <span
+                    key={fs.id}
+                    className="absolute select-none text-yellow-400 font-bold"
+                    style={{
+                      left: x,
+                      top: y,
+                      fontSize: `${Math.min(20 * scaleX, 20)}px`,
+                      opacity: 0.9,
+                      animation: 'floatScore 1s ease-out forwards',
+                      position: 'absolute',
+                      pointerEvents: 'none',
+                      willChange: 'transform, opacity'
+                    }}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    +{fs.value}
+                  </span>
+                );
+              })}
+              <style>{`
+                @keyframes floatScore {
+                  0% { opacity: 0.9; transform: translateY(0); }
+                  80% { opacity: 1; }
+                  100% { opacity: 0; transform: translateY(-40px); }
+                }
+              `}</style>
+            </div>
+
+            {/* Canvas */}
+            <canvas
+              ref={canvasRef}
+              width={GAME_SETTINGS.canvas.width}
+              height={GAME_SETTINGS.canvas.height}
+              className="w-full h-full border-4 border-white/20 rounded-lg shadow-2xl bg-gray-900 select-none"
+              style={{
+                touchAction: 'none',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                MozUserSelect: 'none',
+                msUserSelect: 'none',
+                gridColumn: '1 / -1',
+                gridRow: '1 / -1'
+              }}
+            />
           </div>
         </div>
-        <Button
-          onClick={handleMenuOpen}
-          variant="ghost"
-          size="icon"
-          className="text-white hover:bg-white/20"
-        >
-          <Menu size={24} />
-        </Button>
       </div>
-
-      {/* Floating Score Animations */}
-      <div className="absolute left-0 top-0 w-full h-full pointer-events-none z-40">
-        {floatingScores.map(fs => (
-          <span
-            key={fs.id}
-            style={{
-              position: 'absolute',
-              left: fs.x,
-              top: fs.y,
-              color: '#ffe066',
-              fontWeight: 700,
-              fontSize: 20,
-              pointerEvents: 'none',
-              opacity: 0.9,
-              animation: 'floatScore 1s ease-out forwards',
-            }}
-            className="select-none"
-          >
-            +{fs.value}
-          </span>
-        ))}
-        <style>{`
-          @keyframes floatScore {
-            0% { opacity: 0.9; transform: translateY(0); }
-            80% { opacity: 1; }
-            100% { opacity: 0; transform: translateY(-40px); }
-          }
-        `}</style>
-      </div>
-
-      <div className="flex justify-center pt-4">
-        <canvas 
-          ref={canvasRef} 
-          width={GAME_SETTINGS.canvas.width}
-          height={GAME_SETTINGS.canvas.height}
-          className="border-4 border-white/20 rounded-lg shadow-2xl bg-gray-900 select-none"
-          style={{
-            touchAction: 'none',
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            MozUserSelect: 'none',
-            msUserSelect: 'none'
-          }}
-        />
-      </div>
-
-      {/* <div className="text-center mt-4 text-white/80">
-        <p>Use mouse or arrow keys to move paddle • Space to pause</p>
-        <p className="text-sm">Lives: {lives} • Red bricks explode • Gray bricks need 2 hits</p>
-        <p className="text-sm text-left ml-4 mt-2">FPS: {fps}</p>
-      </div> */}
 
       {showMenu && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-800 p-8 rounded-xl text-white relative min-w-[300px]">
-            <Button
-              onClick={handleMenuClose}
-              variant="ghost"
-              size="icon"
-              className="absolute top-2 right-2 text-white hover:bg-white/20"
-            >
-              <X size={24} />
-            </Button>
-
-            <div className="text-center space-y-4 mt-4">
-              <h2 className="text-2xl font-bold mb-6 flex items-center justify-center">
-                <Pause size={20} className="mr-2" />
-                Paused
-              </h2>
-
-              <Button 
-                onClick={handleMenuClose}
-                className="w-full bg-green-600 hover:bg-green-700"
-              >
-                <Play size={20} className="mr-2" />
-                Resume
-              </Button>
-
-              <Button
-                onClick={resetLevel}
-                className="w-full bg-blue-600 hover:bg-blue-700"
-              >
-                <RefreshCcw size={20} className="mr-2" />
-                Restart
-              </Button>
-
-              <Button
-                onClick={quitToMenu}
-                className="w-full bg-red-600 hover:bg-red-700"
-              >
-                <Home size={20} className="mr-2" />
-                Home
-              </Button>
-            </div>
-          </div>
-        </div>
+        <PauseMenu handleMenuClose={handleMenuClose} resetLevel={resetLevel} quitToMenu={quitToMenu} />
       )}
 
       {gameState === 'won' && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-green-800 p-8 rounded-xl text-white text-center space-y-4">
-            <h2 className="text-3xl font-bold text-yellow-300">Level Complete!</h2>
-            {(() => {
-              const saved = localStorage.getItem('brickBreakerProgress');
-              const data = saved ? JSON.parse(saved) : {};
-              const levelData = data[`level_${level}`] || { score: 0 };
-              const isNewHighScore = score >= (levelData.score || 0);
-
-              return (
-                <>
-                  <p className="text-xl">
-                    {isNewHighScore ? (
-                      <>
-                        New High Score: {score}
-                        {levelData.score > 0 && (
-                          <span className="block text-yellow-300 text-sm mt-1">
-                            Previous: {levelData.score}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        Score: {score}
-                        <span className="block text-yellow-300 text-sm mt-1">
-                          High Score: {levelData.score}
-                        </span>
-                      </>
-                    )}
-                  </p>
-                  <p>Lives Remaining: {lives}</p>
-                  <p>Stars Earned: {'★'.repeat(liveStars)}</p>
-                </>
-              );
-            })()}
-            <div className="space-x-4">
-              <Button 
-                onClick={() => navigate(`/game?level=${level + 1}`)} 
-                className="bg-blue-600 hover:bg-blue-700"
-                disabled={level >= 100}
-              >
-                {level >= 100 ? 'Game Complete!' : 'Next Level'}
-              </Button>
-              <Button onClick={quitToMenu} className='text-black' variant="outline">
-                Level Select
-              </Button>
-            </div>
-          </div>
-        </div>
+        <LevelCompleteModal level={level} score={score} lives={lives} liveStars={liveStars} navigate={navigate} quitToMenu={quitToMenu} />
       )}
 
       {gameState === 'levelFailed' && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-red-800 p-8 rounded-xl text-white text-center space-y-4">
-            <h2 className="text-3xl text-green-400 font-bold">Better luck next time!</h2>
-            <p className="text-xl">All lives lost!</p>
-            <p>Score: {score}</p>
-            <div className="space-x-4">
-              <Button onClick={resetLevel} className="bg-green-600 hover:bg-green-700">
-                Try Again
-              </Button>
-              <Button onClick={quitToMenu} className='text-green-600' variant="outline">
-                Level Select
-              </Button>
-            </div>
-          </div>
-        </div>
+        <LevelFailedModal score={score} resetLevel={resetLevel} quitToMenu={quitToMenu} />
       )}
 
       {gameState === 'ready' && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40">
-          <div className="bg-gray-800 p-6 rounded-xl text-white text-center">
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
+          <div className="bg-gray-800 p-4 sm:p-6 rounded-xl text-white text-center w-full max-w-[300px] sm:min-w-[300px]">
             {(() => {
               const message = getReadyMessage();
               return (
                 <>
-                  <h2 className="text-3xl font-bold mb-4 text-yellow-400">
+                  <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 text-yellow-400">
                     {message.title}
                   </h2>
                   {message.showSubtitle && (
-                    <p className="text-lg mb-2 text-white/80">
+                    <p className="text-base sm:text-lg mb-2 text-white/80">
                       {message.subtitle}
                     </p>
                   )}
-                  <p className="text-5xl font-bold text-yellow-400 animate-pulse mt-4">
+                  <p className="text-4xl sm:text-5xl font-bold text-yellow-400 animate-pulse mt-3 sm:mt-4">
                     {countdown}
                   </p>
                 </>
@@ -1499,9 +1478,6 @@ const Game = () => {
           </div>
         </div>
       )}
-
-      {/* Add ParticleRenderer */}
-      <ParticleRenderer particles={particles} />
     </div>
   );
 };

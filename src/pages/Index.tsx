@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { useNavigate } from 'react-router-dom';
 
-const CRACK_DELAY = 10;
+const CRACK_DELAY = 0;
 
 const Index = () => {
   const navigate = useNavigate();
@@ -31,21 +31,19 @@ const Index = () => {
 
   return (
     <div className={`min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center relative overflow-hidden transition-all duration-1000 ${isZooming ? 'animate-zoom-in' : ''}`}>
-      <div className={`text-center z-10 transition-all duration-1000 ${isZooming ? 'animate-fade-out' : 'animate-fade-in'}`}>
+      <div className={`text-center z-10 transition-all duration-1000 ${isZooming ? 'animate-fade-out' : 'animate-fade-in'} w-full max-w-xs sm:max-w-md md:max-w-2xl p-4 sm:p-8`}>
         {/* Both BRICK and BREAKER with font and crack/shatter effects */}
         {logoWords.map((word, wIdx) => (
           <div key={word.text} className={word.className}>
             {word.text.split('').map((letter, i) => (
               <span
                 key={`${letter}-${i}-${isCracked ? 'cracked' : 'normal'}-${isShattering ? 'shattering' : 'intact'}`}
-
                 className={`
-                  inline-block text-9xl font-bold tracking-wide relative transition-all duration-500
-                  font-crash
+                  inline-block font-bold tracking-wide relative transition-all duration-500 font-crash
                   ${isCracked ? 'text-red-500 cracked-text animate-crack-flicker' : 'text-red-500'}
                   ${isShattering ? 'breaker-shatter' : ''}
+                  text-5xl xs:text-6xl sm:text-7xl md:text-8xl lg:text-9xl
                 `}
-
                 style={{
                   animationDelay: isCracked ? `${i * 0.07 + wIdx * 0.2}s` : '0s',
                   '--shatter-x': `${Math.random() * 400 - 200}px`,
@@ -63,15 +61,14 @@ const Index = () => {
           <Button
             onClick={handleStart}
             disabled={isShattering}
-            className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-12 text-2xl rounded-2xl shadow-2xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full max-w-xs sm:max-w-sm text-lg sm:text-2xl py-3 sm:py-4 px-6 sm:px-12 rounded-xl sm:rounded-2xl shadow-2xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold"
           >
             {isShattering ? 'LAUNCHING...' : 'START GAME'}
           </Button>
         </div>
 
-        <div className={`mt-12 text-white/80 text-lg transition-all duration-500 ${isZooming ? 'opacity-0' : 'opacity-100'}`}>
+        <div className={`mt-8 sm:mt-12 text-white/80 text-base sm:text-lg transition-all duration-500 ${isZooming ? 'opacity-0' : 'opacity-100'}`}>
           <p>eeta ka javab patharr se!</p>
-          
         </div>
       </div>
 
