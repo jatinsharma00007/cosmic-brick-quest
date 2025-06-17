@@ -8,6 +8,10 @@ import { GAME_SETTINGS, SCORE_SETTINGS, CONTROLS, GAME_SIZES } from '../lib/conf
 import { gameToOverlayCoords } from '../lib/utils';
 import ParticleEffect from '@/components/ParticleEffect';
 import { getParticleSettings } from '@/lib/particleConfig';
+import arrowLeftRight from '/assets/arrow-left-right.png';
+import arrowUp from '/assets/arrow-up.png';
+import drag from '/assets/drag.png';
+import tap from '/assets/tap.png';
 
 interface Brick {
   x: number;
@@ -280,49 +284,43 @@ const Game = () => {
   const animationRef = useRef<number>();
   const keysRef = useRef<{ [key: string]: boolean }>({});
   const isResettingRef = useRef(false);
+  // Add a flag to track if we're currently processing a frame
+  const isProcessingFrameRef = useRef(false);
 
   const [isPaused, setIsPaused] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [lives, setLives] = useState(GAME_SETTINGS.lives);
-  const [gameState, setGameState] = useState<'ready' | 'playing' | 'won' | 'lost' | 'levelFailed'>('ready');
+  // Only using 'ready', 'playing', 'won', and 'levelFailed' states - 'lost' is unused
+  const [gameState, setGameState] = useState<'ready' | 'playing' | 'won' | 'levelFailed'>('ready');
   
-  const [isDragging, setIsDragging] = useState(false);
   const [paddle, setPaddle] = useState<Paddle>({ x: 350, y: 550, width: 100, height: 20 });
   const [ball, setBall] = useState<Ball>({
     x: 400,
     y: 530,
-    dx: 4,
-    dy: -4,
+    dx: 0,  // Start with no horizontal movement
+    dy: 0,  // Start with no vertical movement
     radius: 10,
-    speed: 4,
+    speed: 0,  // Start with no speed
     baseSpeed: 4
   });
   const [bricks, setBricks] = useState<Brick[]>([]);
 
-  // Add a ref to track if game is initialized
-  const isInitializedRef = useRef(false);
-
-  const [mouseX, setMouseX] = useState<number | null>(null);
-
-  // Add refs for frequently accessed values to avoid re-renders
   const gameStateRef = useRef(gameState);
   const isPausedRef = useRef(isPaused);
   const paddleRef = useRef(paddle);
   const ballRef = useRef(ball);
   const bricksRef = useRef(bricks);
 
+  // Add a ref to track if game is initialized
+  const isInitializedRef = useRef(false);
+
   // Add FPS tracking refs
   const fpsRef = useRef(0);
   const frameCountRef = useRef(0);
   const lastFpsUpdateRef = useRef(performance.now());
   const [fps, setFps] = useState(0);
-
-  const [countdown, setCountdown] = useState(3);
-  const countdownRef = useRef<NodeJS.Timeout | null>(null);
-  const [readyStateContext, setReadyStateContext] = useState<'start' | 'resume' | 'retry' | 'restart'>('start');
-  const livesRef = useRef(lives);
 
   // Add a ref to ensure we only save once per win
   const hasSavedWinRef = useRef(false);
@@ -356,14 +354,17 @@ const Game = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Update refs when state changes
+  // Update gameStateRef when gameState changes
   useEffect(() => {
     gameStateRef.current = gameState;
-    // Ensure isPaused is properly synced with gameState
-    if (gameState === 'playing') {
-      isPausedRef.current = false;
-    } else if (gameState === 'ready') {
+    
+    // Apply state-specific pause rules:
+    // - 'ready' state is always paused until player launches
+    // - 'playing' state can be either paused or unpaused
+    // - 'won' and 'levelFailed' states don't need special handling
+    if (gameState === 'ready') {
       isPausedRef.current = true;
+      setIsPaused(true);
     }
   }, [gameState]);
 
@@ -383,16 +384,37 @@ const Game = () => {
     bricksRef.current = bricks;
   }, [bricks]);
 
-  // Update livesRef when lives change
-  useEffect(() => {
-    livesRef.current = lives;
-  }, [lives]);
-
   // Live star calculation
   useEffect(() => {
     setLiveStars(calculateStars(score, lives, bricks));
   }, [score, lives, bricks]);
 
+  // Add this debug function after the renderGame function
+  const renderDebugInfo = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (!GAME_SETTINGS.debug) return;
+    
+    const currentBall = ballRef.current;
+    
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    
+    const debugInfo = [
+      `Ball: x=${currentBall.x.toFixed(1)} y=${currentBall.y.toFixed(1)}`,
+      `Speed: ${currentBall.speed.toFixed(2)}`,
+      `Direction: dx=${currentBall.dx.toFixed(2)} dy=${currentBall.dy.toFixed(2)}`,
+      `Game: ${gameStateRef.current} ${isPausedRef.current ? 'PAUSED' : 'RUNNING'}`,
+    ];
+    
+    debugInfo.forEach((line, i) => {
+      ctx.fillText(line, 10, GAME_SETTINGS.canvas.height - 60 + (i * 15));
+    });
+    
+    ctx.restore();
+  }, []);
+
+  // Update the renderGame function to include the debug info
   const renderGame = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -501,7 +523,9 @@ const Game = () => {
     ctx.textAlign = 'left';
     ctx.fillText(`FPS: ${fpsRef.current}`, 10, canvas.height - 10);
     ctx.restore();
-  }, []); // Empty dependency array since we're using refs
+
+    renderDebugInfo(ctx);
+  }, [renderDebugInfo]);
 
   // Move resetBallAndPaddle before gameLoop
   const resetBallAndPaddle = useCallback(() => {
@@ -513,258 +537,302 @@ const Game = () => {
     const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
     const paddleWidth = sizes.paddleWidth;
     const paddleHeight = sizes.paddleHeight;
+
+    // Determine paddle Y position based on device type
+    let paddleY;
+    if (window.innerWidth < 768) { // Mobile
+      paddleY = GAME_SETTINGS.paddle.mobileInitialY;
+    } else if (window.innerWidth < 1024) { // Tablet
+      paddleY = GAME_SETTINGS.paddle.tabletInitialY;
+    } else { // Desktop
+      paddleY = GAME_SETTINGS.paddle.initialY;
+    }
+
     setPaddle(prev => ({
       ...prev,
       x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2,
-      y: GAME_SETTINGS.paddle.initialY,
+      y: paddleY,
       width: paddleWidth,
       height: paddleHeight,
     }));
 
-    const speed = GAME_SETTINGS.ball.baseSpeed;
-    const angle = Math.random() > 0.5 ? Math.PI / 4 : -Math.PI / 4;
     const ballRadius = sizes.ballRadius;
     setBall(prev => ({
       x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2 + paddleWidth / 2,
-      y: GAME_SETTINGS.ball.initialY,
-      dx: speed * Math.sin(angle),
-      dy: -speed * Math.cos(angle),
+      y: paddleY - 20, // Position ball above paddle
+      dx: 0,  // No horizontal movement
+      dy: 0,  // No vertical movement
       radius: ballRadius,
-      speed: speed,
-      baseSpeed: speed
+      speed: 0,  // No speed
+      baseSpeed: GAME_SETTINGS.ball.baseSpeed
     }));
-    setReadyStateContext('retry');
     setGameState('ready');
+    // Update both the ref and state for pause
+    isPausedRef.current = true;
     setIsPaused(true);
-    setMouseX(null);
   }, [level, lives, gameState, isMobile]);
 
   const gameLoop = useCallback(() => {
-    // Check both refs for game state
-    const isGamePlaying = gameStateRef.current === 'playing' && !isPausedRef.current;
-
-    if (isGamePlaying) {
-      // Update paddle with keyboard
-      if (keysRef.current['ArrowLeft']) {
-        setPaddle(prev => ({
-          ...prev,
-          x: Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed)
-        }));
+    // Prevent multiple frames from being processed simultaneously
+    if (isProcessingFrameRef.current) {
+      // Already processing a frame, schedule next one and return
+      animationRef.current = requestAnimationFrame(gameLoop);
+      return;
+    }
+    
+    // Mark that we're processing a frame
+    isProcessingFrameRef.current = true;
+    
+    try {
+      // Get current state values directly from refs for consistency
+      const currentGameState = gameStateRef.current;
+      const isPaused = isPausedRef.current;
+      
+      // Debug state logging (only if debug enabled)
+      if (GAME_SETTINGS.debug && frameCountRef.current % 60 === 0) { // Log once per second approximately
+        console.log(`GameLoop check - State: ${currentGameState}, Paused: ${isPaused}, AnimationFrame: ${!!animationRef.current}`);
       }
-      if (keysRef.current['ArrowRight']) {
-        setPaddle(prev => ({
-          ...prev,
-          x: Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed)
-        }));
-      }
+      
+      // Game is active only when in 'playing' state AND not paused
+      // - 'ready' state means ball is waiting on paddle for launch (always paused)
+      // - 'playing' + isPaused=true means temporarily paused during active gameplay
+      // - 'playing' + isPaused=false means active gameplay
+      // - 'won' and 'levelFailed' states don't need game loop updates
+      const isGamePlaying = currentGameState === 'playing' && !isPaused;
 
-      // Update paddle with mouse movement
-      if (mouseX !== null && isDragging) {
-        setPaddle(prev => {
-          const targetX = Math.max(0, Math.min(GAME_SETTINGS.canvas.width - prev.width, mouseX - prev.width / 2));
-          return { ...prev, x: targetX };
-        });
-      }
-
-      // Use requestAnimationFrame timestamp for smooth animation
-      const updateBall = (prevBall: Ball) => {
-        let newX = prevBall.x + prevBall.dx;
-        let newY = prevBall.y + prevBall.dy;
-        let newDx = prevBall.dx;
-        let newDy = prevBall.dy;
-
-        // Wall collisions with bounce effect
-        if (newX <= prevBall.radius) {
-          newDx = Math.abs(newDx);
-          newX = prevBall.radius;
-        } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
-          newDx = -Math.abs(newDx);
-          newX = GAME_SETTINGS.canvas.width - prevBall.radius;
+      if (isGamePlaying) {
+        // Update paddle with keyboard
+        if (keysRef.current['ArrowLeft']) {
+          setPaddle(prev => ({
+            ...prev,
+            x: Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed)
+          }));
         }
-        if (newY <= prevBall.radius) {
-          newDy = Math.abs(newDy);
-          newY = prevBall.radius;
+        if (keysRef.current['ArrowRight']) {
+          setPaddle(prev => ({
+            ...prev,
+            x: Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed)
+          }));
         }
 
-        // Ball lost - lose a life
-        if (newY >= GAME_SETTINGS.canvas.height && gameStateRef.current === 'playing') {
-          if (!isResettingRef.current) {
-            isResettingRef.current = true;
-            setLives(currentLives => {
-              if (currentLives > 1) {
-                setTimeout(() => {
-                  isResettingRef.current = false;
-                  resetBallAndPaddle();
-                }, 1000);
-              } else {
-                isResettingRef.current = false;
-              }
-              return currentLives - 1;
-            });
+        // Update ball position only if game is playing
+        const updateBall = (prevBall: Ball) => {
+          if (prevBall.speed === 0) return prevBall; // Don't move ball if speed is 0
+
+          let newX = prevBall.x + prevBall.dx;
+          let newY = prevBall.y + prevBall.dy;
+          let newDx = prevBall.dx;
+          let newDy = prevBall.dy;
+
+          // Wall collisions with bounce effect
+          if (newX <= prevBall.radius) {
+            newDx = Math.abs(newDx);
+            newX = prevBall.radius;
+          } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
+            newDx = -Math.abs(newDx);
+            newX = GAME_SETTINGS.canvas.width - prevBall.radius;
           }
-          return prevBall;
-        }
+          if (newY <= prevBall.radius) {
+            newDy = Math.abs(newDy);
+            newY = prevBall.radius;
+          }
 
-        // Enhanced paddle collision with angle calculation
-        const currentPaddle = paddleRef.current;
-        if (newY + prevBall.radius >= currentPaddle.y &&
-          newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
-          newX >= currentPaddle.x &&
-          newX <= currentPaddle.x + currentPaddle.width) {
-          
-          // Calculate hit position relative to paddle center (-1 to 1)
-          const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
+          // Ball lost - lose a life
+          if (newY >= GAME_SETTINGS.canvas.height && currentGameState === 'playing') {
+            if (!isResettingRef.current) {
+              isResettingRef.current = true;
+              setLives(currentLives => {
+                if (currentLives > 1) {
+                  setTimeout(() => {
+                    isResettingRef.current = false;
+                    resetBallAndPaddle();
+                  }, 1000);
+                } else {
+                  isResettingRef.current = false;
+                }
+                return currentLives - 1;
+              });
+            }
+            return prevBall;
+          }
 
-          // Calculate bounce angle (max 75 degrees)
-          const angle = hitPos * (Math.PI / 3);
+          // Enhanced paddle collision with angle calculation
+          const currentPaddle = paddleRef.current;
+          if (newY + prevBall.radius >= currentPaddle.y &&
+            newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
+            newX >= currentPaddle.x &&
+            newX <= currentPaddle.x + currentPaddle.width) {
+            
+            // Calculate hit position relative to paddle center (-1 to 1)
+            const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
 
-          // Maintain ball speed but adjust direction
-          const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
-          newDx = speed * Math.sin(angle);
-          newDy = -speed * Math.cos(angle);
+            // Calculate bounce angle (max 75 degrees)
+            const angle = hitPos * (Math.PI / 3);
 
-          // Ensure ball doesn't get stuck in paddle
-          newY = currentPaddle.y - prevBall.radius;
+            // Maintain ball speed but adjust direction
+            const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
+            newDx = speed * Math.sin(angle);
+            newDy = -speed * Math.cos(angle);
 
-          return {
-            ...prevBall,
-            x: newX,
-            y: newY,
-            dx: newDx,
-            dy: newDy,
-            speed: speed,
-            baseSpeed: speed
-          };
-        }
+            // Ensure ball doesn't get stuck in paddle
+            newY = currentPaddle.y - prevBall.radius;
 
-        return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
-      };
+            return {
+              ...prevBall,
+              x: newX,
+              y: newY,
+              dx: newDx,
+              dy: newDy,
+              speed: speed,
+              baseSpeed: speed
+            };
+          }
 
-      setBall(updateBall);
+          return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
+        };
 
-      // Enhanced brick collision detection
-      setBricks(currentBricks => {
-        const updatedBricks = [...currentBricks];
-        let scoreIncrease = 0;
-        let hitDetected = false;
-        const currentBall = ballRef.current;
-        let newBricksBroken = 0;
-        let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
+        setBall(updateBall);
 
-        // Check collision cooldown
-        if (collisionCooldownRef.current > 0) {
-          collisionCooldownRef.current--;
-          return updatedBricks;
-        }
+        // Enhanced brick collision detection
+        setBricks(currentBricks => {
+          const updatedBricks = [...currentBricks];
+          let scoreIncrease = 0;
+          let hitDetected = false;
+          const currentBall = ballRef.current;
+          let newBricksBroken = 0;
+          let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
 
-        for (let i = 0; i < updatedBricks.length; i++) {
-          const brick = updatedBricks[i];
-          if (!brick.destroyed) {
-            if (isBallCollidingWithBrick(currentBall, brick)) {
-              // Resolve collision and update ball direction
-              const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
-              setBall(prev => ({ ...prev, dx, dy, speed }));
-              hitDetected = true;
+          // Check collision cooldown
+          if (collisionCooldownRef.current > 0) {
+            collisionCooldownRef.current--;
+            return updatedBricks;
+          }
 
-              // Set collision cooldown
-              collisionCooldownRef.current = COLLISION_COOLDOWN;
+          for (let i = 0; i < updatedBricks.length; i++) {
+            const brick = updatedBricks[i];
+            if (!brick.destroyed) {
+              if (isBallCollidingWithBrick(currentBall, brick)) {
+                // Resolve collision and update ball direction
+                const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
+                setBall(prev => ({ ...prev, dx, dy, speed }));
+                hitDetected = true;
 
-              brick.hits += 1;
+                // Set collision cooldown
+                collisionCooldownRef.current = COLLISION_COOLDOWN;
 
-              if (brick.hits >= brick.maxHits) {
-                brick.destroyed = true;
-                newBricksBroken++;
+                brick.hits += 1;
 
-                // Add particle effect with device-specific settings
-                const isMaterial = brick.type === 'material';
-                const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
-                const particleSettings = getParticleSettings();
+                if (brick.hits >= brick.maxHits) {
+                  brick.destroyed = true;
+                  newBricksBroken++;
 
-                setParticleEffects(prev => [
-                  ...prev,
-                  {
-                    id: particleEffectId.current++,
+                  // Add particle effect with device-specific settings
+                  const isMaterial = brick.type === 'material';
+                  const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
+                  const particleSettings = getParticleSettings();
+
+                  setParticleEffects(prev => [
+                    ...prev,
+                    {
+                      id: particleEffectId.current++,
+                      x: brick.x + brick.width / 2,
+                      y: brick.y + brick.height / 2,
+                      color: brick.color,
+                      glow: shouldGlow,
+                      count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
+                      size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
+                      duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
+                      intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
+                    }
+                  ]);
+
+                  // Floating score animation - use brick position
+                  let value = SCORE_SETTINGS.normalBrick;
+                  if (brick.type === 'material' && brick.material) {
+                    value = SCORE_SETTINGS.materialBricks[brick.material].points;
+                  }
+
+                  floatingScoreToAdd = {
                     x: brick.x + brick.width / 2,
                     y: brick.y + brick.height / 2,
-                    color: brick.color,
-                    glow: shouldGlow,
-                    count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
-                    size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
-                    duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
-                    intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
+                    value
+                  };
+
+                  if (brick.type === 'material' && brick.material) {
+                    scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
+                  } else {
+                    scoreIncrease += SCORE_SETTINGS.normalBrick;
                   }
-                ]);
-
-                // Floating score animation - use brick position
-                let value = SCORE_SETTINGS.normalBrick;
-                if (brick.type === 'material' && brick.material) {
-                  value = SCORE_SETTINGS.materialBricks[brick.material].points;
                 }
 
-                floatingScoreToAdd = {
-                  x: brick.x + brick.width / 2,
-                  y: brick.y + brick.height / 2,
-                  value
-                };
-
-                if (brick.type === 'material' && brick.material) {
-                  scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
-                } else {
-                  scoreIncrease += SCORE_SETTINGS.normalBrick;
-                }
+                break;
               }
-
-              break;
             }
           }
-        }
 
-        if (scoreIncrease > 0) {
-          setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
-        }
-        if (newBricksBroken > 0) {
-          setBricksBroken(prev => prev + newBricksBroken);
-        }
-        if (floatingScoreToAdd) {
-          setFloatingScores(prev => [
-            ...prev,
-            {
-              id: floatingScoreId.current++,
-              x: floatingScoreToAdd.x,
-              y: floatingScoreToAdd.y,
-              value: floatingScoreToAdd.value,
-            },
-          ]);
-          setTimeout(() => {
-            setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
-          }, 1000);
-        }
-
-        if (updatedBricks.every(brick => brick.destroyed)) {
-          if (!hasSavedWinRef.current) {
-            const highScore = saveLevelProgress();
-            setScore(highScore);
-            hasSavedWinRef.current = true;
+          if (scoreIncrease > 0) {
+            setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
           }
-          setGameState('won');
-          setTimeout(() => {
-            setShowSummary(true);
-            setSummaryData({
-              time: Math.floor((Date.now() - levelStartTime) / 1000),
-              stars: liveStars,
-              score,
-            });
-          }, 800);
-        }
+          if (newBricksBroken > 0) {
+            setBricksBroken(prev => prev + newBricksBroken);
+          }
+          if (floatingScoreToAdd) {
+            setFloatingScores(prev => [
+              ...prev,
+              {
+                id: floatingScoreId.current++,
+                x: floatingScoreToAdd.x,
+                y: floatingScoreToAdd.y,
+                value: floatingScoreToAdd.value,
+              },
+            ]);
+            setTimeout(() => {
+              setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
+            }, 1000);
+          }
 
-        return updatedBricks;
-      });
+          if (updatedBricks.every(brick => brick.destroyed)) {
+            if (!hasSavedWinRef.current) {
+              const highScore = saveLevelProgress();
+              setScore(highScore);
+              hasSavedWinRef.current = true;
+            }
+            setGameState('won');
+            setTimeout(() => {
+              setShowSummary(true);
+              setSummaryData({
+                time: Math.floor((Date.now() - levelStartTime) / 1000),
+                stars: liveStars,
+                score,
+              });
+            }, 800);
+          }
+
+          return updatedBricks;
+        });
+      } else if (gameStateRef.current === 'ready') {
+        // Keep ball on paddle when in ready state (waiting for player to launch)
+        // This is important to ensure the ball follows the paddle before launch
+        setBall(prev => ({
+          ...prev,
+          x: paddleRef.current.x + paddleRef.current.width / 2,
+          y: paddleRef.current.y - 20
+        }));
+      }
+
+      // Always render and schedule next frame
+      renderGame();
+      animationRef.current = requestAnimationFrame(gameLoop);
+      
+    } catch (error) {
+      console.error('Error in game loop:', error);
+      // Make sure we still continue the game loop even if there's an error
+      animationRef.current = requestAnimationFrame(gameLoop);
+    } finally {
+      // Make sure to reset the processing flag
+      isProcessingFrameRef.current = false;
     }
-
-    // Always render and schedule next frame
-    renderGame();
-    animationRef.current = requestAnimationFrame(gameLoop);
-  }, [renderGame, isDragging, mouseX, resetBallAndPaddle]);
+  }, [renderGame, resetBallAndPaddle]);
 
   const getDifficultyConfig = (levelNumber: number): DifficultyConfig => {
     const { difficulty } = GAME_SETTINGS;
@@ -845,34 +913,43 @@ const Game = () => {
 
     setScore(0);
     setLives(GAME_SETTINGS.lives);
-    setReadyStateContext('start');
     setGameState('ready');
-    setIsPaused(false);
+    // Update both the ref and state for pause
+    isPausedRef.current = true;
+    setIsPaused(true);
     setBricksBroken(0);
     
     const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
     const paddleWidth = sizes.paddleWidth;
     const paddleHeight = sizes.paddleHeight;
+
+    // Determine paddle Y position based on device type
+    let paddleY;
+    if (window.innerWidth < 768) { // Mobile
+      paddleY = GAME_SETTINGS.paddle.mobileInitialY;
+    } else if (window.innerWidth < 1024) { // Tablet
+      paddleY = GAME_SETTINGS.paddle.tabletInitialY;
+    } else { // Desktop
+      paddleY = GAME_SETTINGS.paddle.initialY;
+    }
+
     const newPaddle = { 
       x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2, 
-      y: 550, 
+      y: paddleY, 
       width: paddleWidth,
       height: paddleHeight 
     };
     setPaddle(newPaddle);
-    
-    // Initialize ball with normalized velocity components
-    const speed = GAME_SETTINGS.ball.baseSpeed;
-    const angle = Math.random() > 0.5 ? Math.PI / 4 : -Math.PI / 4; // Random angle between -45 and 45 degrees
+
     const ballRadius = sizes.ballRadius;
     const newBall = {
       x: newPaddle.x + newPaddle.width / 2,
-      y: newPaddle.y - 20,
-      dx: speed * Math.sin(angle),
-      dy: -speed * Math.cos(angle),
+      y: newPaddle.y - 20, // Position ball above paddle
+      dx: 0,  // No horizontal movement
+      dy: 0,  // No vertical movement
       radius: ballRadius,
-      speed: speed,
-      baseSpeed: speed
+      speed: 0,  // No speed
+      baseSpeed: GAME_SETTINGS.ball.baseSpeed
     };
     setBall(newBall);
     
@@ -881,41 +958,151 @@ const Game = () => {
   }, [level, isMobile]);
 
   const handleMenuOpen = useCallback(() => {
-    setShowMenu(true);
+    if (GAME_SETTINGS.debug) {
+      console.log('Menu opened - pausing game');
+    }
+    
+    // Always pause the game when menu opens, but keep the current gameState
+    // This allows us to distinguish between 'ready' and 'playing' states when resuming
+    isPausedRef.current = true;
     setIsPaused(true);
+    setShowMenu(true);
   }, []);
 
   const handleMenuClose = useCallback(() => {
     setShowMenu(false);
-    setReadyStateContext('resume');
-    setGameState('ready');
-    setIsPaused(true);
-  }, []);
-
-  const togglePause = useCallback(() => {
+    
+    // When closing the menu:
+    // - If game was in 'playing' state, always unpause and resume gameplay
+    // - If game was in 'ready' state, keep it paused until player launches
     if (gameState === 'playing') {
-      setIsPaused(prev => !prev);
+      if (GAME_SETTINGS.debug) {
+        console.log('Menu closed - resuming gameplay');
+      }
+      
+      // Always unpause when closing menu in playing state
+      isPausedRef.current = false;
+      setIsPaused(false);
+      
+      // CRITICAL: Use setTimeout to ensure state updates have been processed
+      // before restarting the animation frame
+      setTimeout(() => {
+        // Force restart the animation frame to ensure immediate resume
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = undefined;
+        }
+        renderGame(); // Force an immediate render
+        animationRef.current = requestAnimationFrame(gameLoop);
+        
+        if (GAME_SETTINGS.debug) {
+          console.log('Animation frame forcefully restarted after menu close');
+        }
+      }, 0);
+    } else if (gameState === 'ready') {
+      // Keep it paused until player launches with spacebar/up arrow
+      isPausedRef.current = true;
+      setIsPaused(true);
+    }
+    // Won and levelFailed states don't need any special handling when closing menu
+  }, [gameState, gameLoop, renderGame]);
+
+  // Add the startGame function before togglePause
+  const startGame = useCallback(() => {
+    if (gameState === 'ready') {
+      // Set ball in motion with random initial angle
+      const speed = GAME_SETTINGS.ball.baseSpeed;
+      const angle = Math.random() > 0.5 ? Math.PI / 4 : -Math.PI / 4;
+      setBall(prev => ({
+        ...prev,
+        dx: Math.sin(angle) * speed,
+        dy: -Math.cos(angle) * speed,
+        speed: speed
+      }));
+      
+      // Change state to playing and ensure game is unpaused
+      setGameState('playing');
+      isPausedRef.current = false;
+      setIsPaused(false);
+      
+      if (GAME_SETTINGS.debug) {
+        console.log('Game started - transitioning from ready to playing state');
+      }
     }
   }, [gameState]);
 
+  const togglePause = useCallback(() => {
+    if (gameStateRef.current === 'playing') {
+      // Toggle pause state for active gameplay
+      const newIsPaused = !isPausedRef.current;
+      
+      if (GAME_SETTINGS.debug) {
+        console.log(`Toggle pause from ${isPausedRef.current ? 'PAUSED' : 'RUNNING'} to ${newIsPaused ? 'PAUSED' : 'RUNNING'}`);
+      }
+      
+      // Immediately update both the ref and state to ensure synchronization
+      isPausedRef.current = newIsPaused;
+      setIsPaused(newIsPaused);
+      
+      // If we're unpausing, force restart the animation frame for immediate response
+      if (!newIsPaused) {
+        // Use setTimeout to ensure state updates have been processed
+        setTimeout(() => {
+          if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = undefined;
+          }
+          renderGame(); // Force an immediate render
+          animationRef.current = requestAnimationFrame(gameLoop);
+          
+          if (GAME_SETTINGS.debug) {
+            console.log('Animation frame forcefully restarted after spacebar unpause');
+          }
+        }, 0);
+      }
+      
+      // We don't change gameState here, just isPaused
+      // This ensures we know the game is in 'playing' mode but temporarily paused
+    } else if (gameStateRef.current === 'ready') {
+      // If in ready state, start the game (which will set to playing and unpause)
+      startGame();
+    }
+    // Won and levelFailed states don't respond to pause toggle
+  }, [startGame, gameLoop, renderGame]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Special handling for menu keys that always work
+    if (CONTROLS.menuClose.includes(e.key)) {
+      e.preventDefault();
+      if (showMenu) {
+        handleMenuClose();
+        return;
+      }
+    }
+    
+    // Don't respond to other key presses if menu is open
+    if (showMenu) {
+      return;
+    }
+
     if (CONTROLS.pause.includes(e.key) || CONTROLS.pause.includes(e.code)) {
       e.preventDefault();
       togglePause();
     } else if (CONTROLS.menuOpen.includes(e.key)) {
       e.preventDefault();
       handleMenuOpen();
-    } else if (CONTROLS.menuClose.includes(e.key)) {
-      e.preventDefault();
-      if (showMenu) handleMenuClose();
     } else if (CONTROLS.moveLeft.includes(e.key) || CONTROLS.moveLeft.includes(e.code)) {
       keysRef.current['ArrowLeft'] = true;
     } else if (CONTROLS.moveRight.includes(e.key) || CONTROLS.moveRight.includes(e.code)) {
       keysRef.current['ArrowRight'] = true;
+    } else if (CONTROLS.startGame.includes(e.key) || CONTROLS.startGame.includes(e.code)) {
+      if (gameState === 'ready') {
+        startGame();
+      }
     } else {
       keysRef.current[e.code] = true;
     }
-  }, [showMenu, handleMenuOpen, handleMenuClose, togglePause]);
+  }, [showMenu, handleMenuOpen, handleMenuClose, togglePause, gameState, startGame]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (!(CONTROLS.pause.includes(e.key) || CONTROLS.pause.includes(e.code))) {
@@ -927,47 +1114,6 @@ const Game = () => {
         keysRef.current[e.code] = false;
       }
     }
-  }, []);
-
-  const handleMouseDown = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.button === 0 && gameState === 'playing') {
-      setIsDragging(true);
-    }
-  }, [gameState]);
-
-  const handleMouseUp = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, []);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isPaused || gameState !== 'playing') return;
-    if (!isDragging) return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const newMouseX = (e.clientX - rect.left) * scaleX;
-    setMouseX(newMouseX);
-  }, [isPaused, gameState, isDragging]);
-
-  const handleDoubleClick = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (gameState === 'playing') {
-      setIsDragging(true);
-    }
-  }, [gameState]);
-
-  const handleContextMenu = useCallback((e: MouseEvent) => {
-    e.preventDefault();
   }, []);
 
   const saveLevelProgress = () => {
@@ -1003,8 +1149,9 @@ const Game = () => {
   const resetLevel = useCallback(() => {
     isInitializedRef.current = false;
     initializeGame(level);
-    setReadyStateContext('start');
     setGameState('ready');
+    // Update both the ref and state for pause
+    isPausedRef.current = true;
     setIsPaused(true);
     setShowMenu(false);
     setBricksBroken(0);
@@ -1012,56 +1159,6 @@ const Game = () => {
 
   const quitToMenu = () => {
     navigate('/level-select');
-  };
-
-  const getReadyMessage = () => {
-    switch (readyStateContext) {
-      case 'start':
-        return {
-          title: 'Get Ready',
-          subtitle: 'Game Starts In',
-          showSubtitle: true
-        };
-      case 'resume':
-        return {
-          title: 'Game Resumes In',
-          subtitle: '',
-          showSubtitle: true
-        };
-      case 'restart':
-        return {
-          title: 'Level Restarts In',
-          subtitle: '',
-          showSubtitle: false
-        };
-      case 'retry':
-        const remainingLives = livesRef.current;
-        if (remainingLives === 2) {
-          return {
-            title: 'Retry In',
-            subtitle: '',
-            showSubtitle: false
-          };
-        }
-        if (remainingLives === 1) {
-          return {
-            title: 'Last Chance',
-            subtitle: '',
-            showSubtitle: false
-          };
-        }
-        return {
-          title: 'Retry',
-          subtitle: '',
-          showSubtitle: false
-        };
-      default:
-        return {
-          title: 'Get Ready',
-          subtitle: 'Game Starts In',
-          showSubtitle: true
-        };
-    }
   };
 
   // Helper: get canvas position for floating score
@@ -1083,6 +1180,62 @@ const Game = () => {
     };
   }
 
+  // Handle visibility change and focus events
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab is hidden, pause the game if it was playing
+        if (gameStateRef.current === 'playing' && !isPausedRef.current) {
+          if (GAME_SETTINGS.debug) {
+            console.log('Tab hidden - auto-pausing game');
+          }
+          isPausedRef.current = true;
+          setIsPaused(true);
+        }
+      } else {
+        // Tab is visible again, restart the animation frame
+        // regardless of whether it was already running
+        if (canvasRef.current) {
+          if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = undefined;
+          }
+          renderGame(); // Force an immediate render
+          animationRef.current = requestAnimationFrame(gameLoop);
+          
+          if (GAME_SETTINGS.debug) {
+            console.log('Animation frame restarted after tab becomes visible');
+          }
+        }
+      }
+    };
+
+    const handleFocus = () => {
+      // When window regains focus, always restart the animation frame
+      // This is critical for resuming after F12 or tab switching
+      if (canvasRef.current) {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = undefined;
+        }
+        renderGame(); // Force an immediate render
+        animationRef.current = requestAnimationFrame(gameLoop);
+        
+        if (GAME_SETTINGS.debug) {
+          console.log('Animation frame restarted after window focus');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [gameLoop, renderGame]);
+
   useEffect(() => {
     const levelParam = searchParams.get('level');
     const newLevel = levelParam ? parseInt(levelParam) : 1;
@@ -1101,11 +1254,6 @@ const Game = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('dblclick', handleDoubleClick);
-    canvas.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       if (animationRef.current) {
@@ -1113,56 +1261,54 @@ const Game = () => {
       }
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('dblclick', handleDoubleClick);
-      canvas.removeEventListener('contextmenu', handleContextMenu);
     };
-  }, [searchParams, level, initializeGame, handleMouseDown, handleMouseUp, handleMouseMove, handleDoubleClick, handleContextMenu, handleKeyDown, handleKeyUp]);
+  }, [searchParams, level, initializeGame, handleKeyDown, handleKeyUp]);
 
+  // Add canvasReady state
+  const [canvasReady, setCanvasReady] = useState(false);
+
+  // Poll for canvas readiness after mount and on resize
   useEffect(() => {
-    animationRef.current = requestAnimationFrame(gameLoop);
-    return () => {
+    let raf: number;
+    function checkReady() {
+      const canvas = canvasRef.current;
+      if (canvas && canvas.width > 0 && canvas.height > 0) {
+        setCanvasReady(true);
+      } else {
+        raf = requestAnimationFrame(checkReady);
+      }
+    }
+    checkReady();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Only start animation/game loop and renderGame when canvas is ready and bricks are set
+  useEffect(() => {
+    if (canvasReady && bricks.length > 0) {
+      // Initial render
+      renderGame();
+      
+      // Start the game loop and ensure it's only running once
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
-    };
-  }, [gameLoop]);
+      animationRef.current = requestAnimationFrame(gameLoop);
+      
+      // Cleanup function to cancel animation frame on unmount
+      return () => {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = undefined;
+        }
+      };
+    }
+  }, [canvasReady, bricks, renderGame, gameLoop]);
 
   useEffect(() => {
     if (lives === 0 && gameState !== 'levelFailed') {
       setGameState('levelFailed');
     }
   }, [lives, gameState]);
-
-  // Add countdown effect with context
-  useEffect(() => {
-    if (gameState === 'ready') {
-      setCountdown(3);
-      countdownRef.current = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            if (countdownRef.current) {
-              clearInterval(countdownRef.current);
-              countdownRef.current = null;
-            }
-            setGameState('playing');
-            setIsPaused(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-
-    return () => {
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-        countdownRef.current = null;
-      }
-    };
-  }, [gameState]);
 
   // Add a cleanup effect to save progress when component unmounts
   useEffect(() => {
@@ -1303,61 +1449,20 @@ const Game = () => {
     }
   }, 100);
 
-  // Add touch event handlers
-  const handleTouchStart = useCallback((e: TouchEvent) => {
-    e.preventDefault();
-    if (gameState === 'playing') {
-      setIsDragging(true);
-      const touch = e.touches[0];
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const newMouseX = (touch.clientX - rect.left) * scaleX;
-      setMouseX(newMouseX);
-    }
-  }, [gameState]);
-
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    e.preventDefault();
-    if (!isDragging || isPaused || gameState !== 'playing') return;
-
-    const touch = e.touches[0];
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const newMouseX = (touch.clientX - rect.left) * scaleX;
-    setMouseX(newMouseX);
-  }, [isDragging, isPaused, gameState]);
-
-  const handleTouchEnd = useCallback((e: TouchEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  // Add touch event listeners
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
-
-    return () => {
-      canvas.removeEventListener('touchstart', handleTouchStart);
-      canvas.removeEventListener('touchmove', handleTouchMove);
-      canvas.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
       {/* Header Bar */}
       <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} />
+
+      {/* Pause Indicator - only show when gameplay is paused but menu is not open */}
+      {isPaused && gameState === 'playing' && !showMenu && (
+        <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+          <div className="bg-black/50 p-4 rounded-lg text-white flex flex-col items-center text-2xl font-bold animate-pulse">
+            <span className="block text-center">PAUSED</span>
+            <div className="text-sm mt-2 text-center">Press SPACE to resume</div>
+          </div>
+        </div>
+      )}
 
       {/* Game Container */}
       <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative">
@@ -1452,31 +1557,6 @@ const Game = () => {
 
       {gameState === 'levelFailed' && (
         <LevelFailedModal score={score} resetLevel={resetLevel} quitToMenu={quitToMenu} />
-      )}
-
-      {gameState === 'ready' && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-          <div className="bg-gray-800 p-4 sm:p-6 rounded-xl text-white text-center w-full max-w-[300px] sm:min-w-[300px]">
-            {(() => {
-              const message = getReadyMessage();
-              return (
-                <>
-                  <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 text-yellow-400">
-                    {message.title}
-                  </h2>
-                  {message.showSubtitle && (
-                    <p className="text-base sm:text-lg mb-2 text-white/80">
-                      {message.subtitle}
-                    </p>
-                  )}
-                  <p className="text-4xl sm:text-5xl font-bold text-yellow-400 animate-pulse mt-3 sm:mt-4">
-                    {countdown}
-                  </p>
-                </>
-              );
-            })()}
-          </div>
-        </div>
       )}
     </div>
   );

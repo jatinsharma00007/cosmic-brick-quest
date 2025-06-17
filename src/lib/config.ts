@@ -9,7 +9,9 @@ export const GAME_SETTINGS = {
     paddle: {
         height: 20,
         moveSpeed: 7,
-        initialY: 550
+        initialY: 550,
+        mobileInitialY: 450,  // Higher position for mobile devices
+        tabletInitialY: 500   // Slightly higher position for tablets
     },
     canvas: {
         width: 800,
@@ -17,6 +19,7 @@ export const GAME_SETTINGS = {
         aspectRatio: 4 / 3
     },
     lives: 3,
+    debug: false, // Set to true to show debug information
     difficulty: {
         level1: {
             rows: 4,
@@ -93,6 +96,7 @@ export const SCORE_SETTINGS = {
 export const CONTROLS = {
     moveLeft: ['ArrowLeft', 'a', 'A'],
     moveRight: ['ArrowRight', 'd', 'D'],
+    startGame: ['ArrowUp', 'w', 'W'],  // New control for starting the game
     pause: [' '],
     menuOpen: ['m', 'M'],
     menuClose: ['Escape'],
