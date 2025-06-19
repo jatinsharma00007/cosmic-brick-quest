@@ -7,9 +7,8 @@ import React from 'react';
 import { GAME_SETTINGS, SCORE_SETTINGS, CONTROLS, GAME_SIZES } from '../lib/config';
 import { gameToOverlayCoords } from '../lib/utils';
 import ParticleEffect from '@/components/ParticleEffect';
-import { getParticleSettings } from '@/lib/particleConfig';
-import arrowLeftRight from '/assets/arrow-left-right.png';
-import arrowUp from '/assets/arrow-up.png';
+import { getParticleSettings, adjustSettingsForPerformance } from '@/lib/particleConfig';
+
 import drag from '/assets/drag.png';
 import tap from '/assets/tap.png';
 
@@ -275,6 +274,10 @@ interface ParticleEffectState {
   y: number;
   color: string;
   glow: boolean;
+  count?: number;
+  size?: number;
+  duration?: number;
+  intensity?: number;
 }
 
 const Game = () => {
@@ -286,6 +289,13 @@ const Game = () => {
   const isResettingRef = useRef(false);
   // Add a flag to track if we're currently processing a frame
   const isProcessingFrameRef = useRef(false);
+
+  // Add refs for touch controls
+  const touchActiveRef = useRef(false);
+  const touchDirectionRef = useRef<'left' | 'right' | null>(null);
+  const isDraggingRef = useRef(false);
+  const lastTouchXRef = useRef(0);
+  const hasTouchSupportRef = useRef(false);
 
   const [isPaused, setIsPaused] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -347,8 +357,70 @@ const Game = () => {
 
   // Add mobile detection
   const [isMobile, setIsMobile] = useState(false);
+  const [showTouchControls, setShowTouchControls] = useState(false);
+  const [touchHintVisible, setTouchHintVisible] = useState(true);
+  
+  // Add a state to track if we should show keyboard controls
+  const [showKeyboardControls, setShowKeyboardControls] = useState(false);
+  const [keyboardHintVisible, setKeyboardHintVisible] = useState(true);
+  
+  // Detect if we're on desktop
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    const checkDesktop = () => {
+      const isDesktopDevice = window.innerWidth >= 768 && !hasTouchSupportRef.current;
+      setShowKeyboardControls(isDesktopDevice);
+    };
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Add keyboard controls hint
+  useEffect(() => {
+    if (gameState === 'ready') {
+      setShowKeyboardControls(window.innerWidth >= 768 && !hasTouchSupportRef.current);
+      setKeyboardHintVisible(true);
+    }
+  }, [gameState]);
+  
+  // Hide touch controls hint after a few seconds of gameplay
+  useEffect(() => {
+    if (gameState === 'playing' && touchHintVisible) {
+      const timer = setTimeout(() => {
+        setTouchHintVisible(false);
+      }, 5000); // Hide after 5 seconds of gameplay
+      return () => clearTimeout(timer);
+    }
+  }, [gameState, touchHintVisible]);
+  
+  // Hide keyboard controls hint after a few seconds of gameplay
+  useEffect(() => {
+    if (gameState === 'playing' && keyboardHintVisible) {
+      const timer = setTimeout(() => {
+        setKeyboardHintVisible(false);
+      }, 5000); // Hide after 5 seconds of gameplay
+      return () => clearTimeout(timer);
+    }
+  }, [gameState, keyboardHintVisible]);
+  
+  // Reset touch hint visibility when game state changes to ready
+  useEffect(() => {
+    if (gameState === 'ready') {
+      setTouchHintVisible(true);
+      setKeyboardHintVisible(true);
+    }
+  }, [gameState]);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = window.innerWidth < 768;
+      setIsMobile(isMobileDevice);
+      
+      // Check for touch support
+      hasTouchSupportRef.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      setShowTouchControls(isMobileDevice && hasTouchSupportRef.current);
+      setTouchHintVisible(true); // Reset hint visibility when device type changes
+    };
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -359,14 +431,38 @@ const Game = () => {
     gameStateRef.current = gameState;
     
     // Apply state-specific pause rules:
-    // - 'ready' state is always paused until player launches
+    // - 'ready' state should NOT be paused to allow paddle movement
     // - 'playing' state can be either paused or unpaused
     // - 'won' and 'levelFailed' states don't need special handling
     if (gameState === 'ready') {
-      isPausedRef.current = true;
-      setIsPaused(true);
+      // In ready state, we want to allow paddle movement but prevent ball movement
+      // So we set isPausedRef to false to allow the game loop to run
+      isPausedRef.current = false;
+      setIsPaused(false);
+      
+      if (GAME_SETTINGS.debug) {
+        console.log('Game in READY state - allowing paddle movement');
+      }
     }
   }, [gameState]);
+
+  // Add a debug effect to monitor key state
+  useEffect(() => {
+    if (GAME_SETTINGS.debug) {
+      const checkKeyState = () => {
+        if (gameStateRef.current === 'ready') {
+          console.log('Key state in READY:', 
+            'Left:', keysRef.current['ArrowLeft'], 
+            'Right:', keysRef.current['ArrowRight'],
+            'isPaused:', isPausedRef.current
+          );
+        }
+      };
+      
+      const interval = setInterval(checkKeyState, 1000);
+      return () => clearInterval(interval);
+    }
+  }, []);
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -559,19 +655,31 @@ const Game = () => {
     const ballRadius = sizes.ballRadius;
     setBall(prev => ({
       x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2 + paddleWidth / 2,
-      y: paddleY - 20, // Position ball above paddle
+      y: paddleY - ballRadius - 2, // Position ball just above paddle
       dx: 0,  // No horizontal movement
       dy: 0,  // No vertical movement
       radius: ballRadius,
       speed: 0,  // No speed
       baseSpeed: GAME_SETTINGS.ball.baseSpeed
     }));
+    
+    // Set game to ready state so player can position paddle before launch
     setGameState('ready');
-    // Update both the ref and state for pause
-    isPausedRef.current = true;
-    setIsPaused(true);
+    
+    // Reset touch controls
+    touchActiveRef.current = false;
+    touchDirectionRef.current = null;
+    isDraggingRef.current = false;
+    setTouchHintVisible(true);
+    setKeyboardHintVisible(true);
+    
+    // Reset keyboard state
+    Object.keys(keysRef.current).forEach(key => {
+      keysRef.current[key] = false;
+    });
   }, [level, lives, gameState, isMobile]);
 
+  // Modify the gameLoop to handle the ready state correctly
   const gameLoop = useCallback(() => {
     // Prevent multiple frames from being processed simultaneously
     if (isProcessingFrameRef.current) {
@@ -591,233 +699,264 @@ const Game = () => {
       // Debug state logging (only if debug enabled)
       if (GAME_SETTINGS.debug && frameCountRef.current % 60 === 0) { // Log once per second approximately
         console.log(`GameLoop check - State: ${currentGameState}, Paused: ${isPaused}, AnimationFrame: ${!!animationRef.current}`);
+        
+        if (currentGameState === 'ready') {
+          console.log('Paddle position:', paddleRef.current.x, 'Keys:', 
+            'Left:', keysRef.current['ArrowLeft'], 
+            'Right:', keysRef.current['ArrowRight']
+          );
+        }
       }
       
-      // Game is active only when in 'playing' state AND not paused
-      // - 'ready' state means ball is waiting on paddle for launch (always paused)
-      // - 'playing' + isPaused=true means temporarily paused during active gameplay
-      // - 'playing' + isPaused=false means active gameplay
-      // - 'won' and 'levelFailed' states don't need game loop updates
-      const isGamePlaying = currentGameState === 'playing' && !isPaused;
-
-      if (isGamePlaying) {
+      // Process paddle movement in both ready and playing states, as long as not paused
+      if (!isPaused && (currentGameState === 'ready' || currentGameState === 'playing')) {
         // Update paddle with keyboard
         if (keysRef.current['ArrowLeft']) {
-          setPaddle(prev => ({
-            ...prev,
-            x: Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed)
-          }));
+          setPaddle(prev => {
+            const newX = Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed);
+            if (GAME_SETTINGS.debug && currentGameState === 'ready' && frameCountRef.current % 60 === 0) {
+              console.log('Moving paddle LEFT:', prev.x, '->', newX);
+            }
+            return {
+              ...prev,
+              x: newX
+            };
+          });
         }
         if (keysRef.current['ArrowRight']) {
-          setPaddle(prev => ({
-            ...prev,
-            x: Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed)
-          }));
+          setPaddle(prev => {
+            const newX = Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed);
+            if (GAME_SETTINGS.debug && currentGameState === 'ready' && frameCountRef.current % 60 === 0) {
+              console.log('Moving paddle RIGHT:', prev.x, '->', newX);
+            }
+            return {
+              ...prev,
+              x: newX
+            };
+          });
+        }
+
+        // Update paddle with touch controls
+        if (touchActiveRef.current && touchDirectionRef.current) {
+          if (touchDirectionRef.current === 'left') {
+            setPaddle(prev => ({
+              ...prev,
+              x: Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed * 1.2) // Slightly faster for touch
+            }));
+          } else if (touchDirectionRef.current === 'right') {
+            setPaddle(prev => ({
+              ...prev,
+              x: Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed * 1.2)
+            }));
+          }
         }
 
         // Update ball position only if game is playing
-        const updateBall = (prevBall: Ball) => {
-          if (prevBall.speed === 0) return prevBall; // Don't move ball if speed is 0
+        if (currentGameState === 'playing') {
+          // Ball movement and collision logic for playing state
+          const updateBall = (prevBall: Ball) => {
+            if (prevBall.speed === 0) return prevBall; // Don't move ball if speed is 0
 
-          let newX = prevBall.x + prevBall.dx;
-          let newY = prevBall.y + prevBall.dy;
-          let newDx = prevBall.dx;
-          let newDy = prevBall.dy;
+            let newX = prevBall.x + prevBall.dx;
+            let newY = prevBall.y + prevBall.dy;
+            let newDx = prevBall.dx;
+            let newDy = prevBall.dy;
 
-          // Wall collisions with bounce effect
-          if (newX <= prevBall.radius) {
-            newDx = Math.abs(newDx);
-            newX = prevBall.radius;
-          } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
-            newDx = -Math.abs(newDx);
-            newX = GAME_SETTINGS.canvas.width - prevBall.radius;
-          }
-          if (newY <= prevBall.radius) {
-            newDy = Math.abs(newDy);
-            newY = prevBall.radius;
-          }
-
-          // Ball lost - lose a life
-          if (newY >= GAME_SETTINGS.canvas.height && currentGameState === 'playing') {
-            if (!isResettingRef.current) {
-              isResettingRef.current = true;
-              setLives(currentLives => {
-                if (currentLives > 1) {
-                  setTimeout(() => {
-                    isResettingRef.current = false;
-                    resetBallAndPaddle();
-                  }, 1000);
-                } else {
-                  isResettingRef.current = false;
-                }
-                return currentLives - 1;
-              });
+            // Wall collisions with bounce effect
+            if (newX <= prevBall.radius) {
+              newDx = Math.abs(newDx);
+              newX = prevBall.radius;
+            } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
+              newDx = -Math.abs(newDx);
+              newX = GAME_SETTINGS.canvas.width - prevBall.radius;
             }
-            return prevBall;
-          }
+            if (newY <= prevBall.radius) {
+              newDy = Math.abs(newDy);
+              newY = prevBall.radius;
+            }
 
-          // Enhanced paddle collision with angle calculation
-          const currentPaddle = paddleRef.current;
-          if (newY + prevBall.radius >= currentPaddle.y &&
-            newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
-            newX >= currentPaddle.x &&
-            newX <= currentPaddle.x + currentPaddle.width) {
-            
-            // Calculate hit position relative to paddle center (-1 to 1)
-            const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
+            // Ball lost - lose a life
+            if (newY >= GAME_SETTINGS.canvas.height && currentGameState === 'playing') {
+              if (!isResettingRef.current) {
+                isResettingRef.current = true;
+                setLives(currentLives => {
+                  if (currentLives > 1) {
+                    setTimeout(() => {
+                      isResettingRef.current = false;
+                      resetBallAndPaddle();
+                    }, 1000);
+                  } else {
+                    isResettingRef.current = false;
+                  }
+                  return currentLives - 1;
+                });
+              }
+              return prevBall;
+            }
 
-            // Calculate bounce angle (max 75 degrees)
-            const angle = hitPos * (Math.PI / 3);
+            // Enhanced paddle collision with angle calculation
+            const currentPaddle = paddleRef.current;
+            if (newY + prevBall.radius >= currentPaddle.y &&
+              newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
+              newX >= currentPaddle.x &&
+              newX <= currentPaddle.x + currentPaddle.width) {
+              
+              // Calculate hit position relative to paddle center (-1 to 1)
+              const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
 
-            // Maintain ball speed but adjust direction
-            const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
-            newDx = speed * Math.sin(angle);
-            newDy = -speed * Math.cos(angle);
+              // Calculate bounce angle (max 75 degrees)
+              const angle = hitPos * (Math.PI / 3);
 
-            // Ensure ball doesn't get stuck in paddle
-            newY = currentPaddle.y - prevBall.radius;
+              // Maintain ball speed but adjust direction
+              const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
+              newDx = speed * Math.sin(angle);
+              newDy = -speed * Math.cos(angle);
 
-            return {
-              ...prevBall,
-              x: newX,
-              y: newY,
-              dx: newDx,
-              dy: newDy,
-              speed: speed,
-              baseSpeed: speed
-            };
-          }
+              // Ensure ball doesn't get stuck in paddle
+              newY = currentPaddle.y - prevBall.radius;
 
-          return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
-        };
+              return {
+                ...prevBall,
+                x: newX,
+                y: newY,
+                dx: newDx,
+                dy: newDy,
+                speed: speed,
+                baseSpeed: speed
+              };
+            }
 
-        setBall(updateBall);
+            return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
+          };
 
-        // Enhanced brick collision detection
-        setBricks(currentBricks => {
-          const updatedBricks = [...currentBricks];
-          let scoreIncrease = 0;
-          let hitDetected = false;
-          const currentBall = ballRef.current;
-          let newBricksBroken = 0;
-          let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
+          setBall(updateBall);
 
-          // Check collision cooldown
-          if (collisionCooldownRef.current > 0) {
-            collisionCooldownRef.current--;
-            return updatedBricks;
-          }
+          // Enhanced brick collision detection
+          setBricks(currentBricks => {
+            const updatedBricks = [...currentBricks];
+            let scoreIncrease = 0;
+            let hitDetected = false;
+            const currentBall = ballRef.current;
+            let newBricksBroken = 0;
+            let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
 
-          for (let i = 0; i < updatedBricks.length; i++) {
-            const brick = updatedBricks[i];
-            if (!brick.destroyed) {
-              if (isBallCollidingWithBrick(currentBall, brick)) {
-                // Resolve collision and update ball direction
-                const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
-                setBall(prev => ({ ...prev, dx, dy, speed }));
-                hitDetected = true;
+            // Check collision cooldown
+            if (collisionCooldownRef.current > 0) {
+              collisionCooldownRef.current--;
+              return updatedBricks;
+            }
 
-                // Set collision cooldown
-                collisionCooldownRef.current = COLLISION_COOLDOWN;
+            for (let i = 0; i < updatedBricks.length; i++) {
+              const brick = updatedBricks[i];
+              if (!brick.destroyed) {
+                if (isBallCollidingWithBrick(currentBall, brick)) {
+                  // Resolve collision and update ball direction
+                  const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
+                  setBall(prev => ({ ...prev, dx, dy, speed }));
+                  hitDetected = true;
 
-                brick.hits += 1;
+                  // Set collision cooldown
+                  collisionCooldownRef.current = COLLISION_COOLDOWN;
 
-                if (brick.hits >= brick.maxHits) {
-                  brick.destroyed = true;
-                  newBricksBroken++;
+                  brick.hits += 1;
 
-                  // Add particle effect with device-specific settings
-                  const isMaterial = brick.type === 'material';
-                  const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
-                  const particleSettings = getParticleSettings();
+                  if (brick.hits >= brick.maxHits) {
+                    brick.destroyed = true;
+                    newBricksBroken++;
 
-                  setParticleEffects(prev => [
-                    ...prev,
-                    {
-                      id: particleEffectId.current++,
+                    // Add particle effect with device-specific settings
+                    const isMaterial = brick.type === 'material';
+                    const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
+                    const baseSettings = getParticleSettings();
+                    const particleSettings = adjustSettingsForPerformance(baseSettings);
+
+                    setParticleEffects(prev => [
+                      ...prev,
+                      {
+                        id: particleEffectId.current++,
+                        x: brick.x + brick.width / 2,
+                        y: brick.y + brick.height / 2,
+                        color: brick.color,
+                        glow: shouldGlow,
+                        count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
+                        size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
+                        duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
+                        intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
+                      }
+                    ]);
+
+                    // Floating score animation - use brick position
+                    let value = SCORE_SETTINGS.normalBrick;
+                    if (brick.type === 'material' && brick.material) {
+                      value = SCORE_SETTINGS.materialBricks[brick.material].points;
+                    }
+
+                    floatingScoreToAdd = {
                       x: brick.x + brick.width / 2,
                       y: brick.y + brick.height / 2,
-                      color: brick.color,
-                      glow: shouldGlow,
-                      count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
-                      size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
-                      duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
-                      intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
+                      value
+                    };
+
+                    if (brick.type === 'material' && brick.material) {
+                      scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
+                    } else {
+                      scoreIncrease += SCORE_SETTINGS.normalBrick;
                     }
-                  ]);
-
-                  // Floating score animation - use brick position
-                  let value = SCORE_SETTINGS.normalBrick;
-                  if (brick.type === 'material' && brick.material) {
-                    value = SCORE_SETTINGS.materialBricks[brick.material].points;
                   }
 
-                  floatingScoreToAdd = {
-                    x: brick.x + brick.width / 2,
-                    y: brick.y + brick.height / 2,
-                    value
-                  };
-
-                  if (brick.type === 'material' && brick.material) {
-                    scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
-                  } else {
-                    scoreIncrease += SCORE_SETTINGS.normalBrick;
-                  }
+                  break;
                 }
-
-                break;
               }
             }
-          }
 
-          if (scoreIncrease > 0) {
-            setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
-          }
-          if (newBricksBroken > 0) {
-            setBricksBroken(prev => prev + newBricksBroken);
-          }
-          if (floatingScoreToAdd) {
-            setFloatingScores(prev => [
-              ...prev,
-              {
-                id: floatingScoreId.current++,
-                x: floatingScoreToAdd.x,
-                y: floatingScoreToAdd.y,
-                value: floatingScoreToAdd.value,
-              },
-            ]);
-            setTimeout(() => {
-              setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
-            }, 1000);
-          }
-
-          if (updatedBricks.every(brick => brick.destroyed)) {
-            if (!hasSavedWinRef.current) {
-              const highScore = saveLevelProgress();
-              setScore(highScore);
-              hasSavedWinRef.current = true;
+            if (scoreIncrease > 0) {
+              setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
             }
-            setGameState('won');
-            setTimeout(() => {
-              setShowSummary(true);
-              setSummaryData({
-                time: Math.floor((Date.now() - levelStartTime) / 1000),
-                stars: liveStars,
-                score,
-              });
-            }, 800);
-          }
+            if (newBricksBroken > 0) {
+              setBricksBroken(prev => prev + newBricksBroken);
+            }
+            if (floatingScoreToAdd) {
+              setFloatingScores(prev => [
+                ...prev,
+                {
+                  id: floatingScoreId.current++,
+                  x: floatingScoreToAdd.x,
+                  y: floatingScoreToAdd.y,
+                  value: floatingScoreToAdd.value,
+                },
+              ]);
+              setTimeout(() => {
+                setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
+              }, 1000);
+            }
 
-          return updatedBricks;
-        });
-      } else if (gameStateRef.current === 'ready') {
-        // Keep ball on paddle when in ready state (waiting for player to launch)
-        // This is important to ensure the ball follows the paddle before launch
-        setBall(prev => ({
-          ...prev,
-          x: paddleRef.current.x + paddleRef.current.width / 2,
-          y: paddleRef.current.y - 20
-        }));
+            if (updatedBricks.every(brick => brick.destroyed)) {
+              if (!hasSavedWinRef.current) {
+                const highScore = saveLevelProgress();
+                setScore(highScore);
+                hasSavedWinRef.current = true;
+              }
+              setGameState('won');
+              setTimeout(() => {
+                setShowSummary(true);
+                setSummaryData({
+                  time: Math.floor((Date.now() - levelStartTime) / 1000),
+                  stars: liveStars,
+                  score,
+                });
+              }, 800);
+            }
+
+            return updatedBricks;
+          });
+        } else if (currentGameState === 'ready') {
+          // Keep ball attached to paddle when in ready state
+          setBall(prev => ({
+            ...prev,
+            x: paddleRef.current.x + paddleRef.current.width / 2,
+            y: paddleRef.current.y - prev.radius - 2 // Position ball just above paddle
+          }));
+        }
       }
 
       // Always render and schedule next frame
@@ -914,10 +1053,22 @@ const Game = () => {
     setScore(0);
     setLives(GAME_SETTINGS.lives);
     setGameState('ready');
-    // Update both the ref and state for pause
-    isPausedRef.current = true;
-    setIsPaused(true);
+    // In ready state, we want the game loop to run so player can move paddle
+    isPausedRef.current = false;
+    setIsPaused(false);
     setBricksBroken(0);
+    
+    // Reset touch control state
+    touchActiveRef.current = false;
+    touchDirectionRef.current = null;
+    isDraggingRef.current = false;
+    setTouchHintVisible(true);
+    setKeyboardHintVisible(true);
+    
+    // Reset keyboard state
+    Object.keys(keysRef.current).forEach(key => {
+      keysRef.current[key] = false;
+    });
     
     const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
     const paddleWidth = sizes.paddleWidth;
@@ -944,7 +1095,7 @@ const Game = () => {
     const ballRadius = sizes.ballRadius;
     const newBall = {
       x: newPaddle.x + newPaddle.width / 2,
-      y: newPaddle.y - 20, // Position ball above paddle
+      y: newPaddle.y - ballRadius - 2, // Position ball just above paddle
       dx: 0,  // No horizontal movement
       dy: 0,  // No vertical movement
       radius: ballRadius,
@@ -962,6 +1113,11 @@ const Game = () => {
       console.log('Menu opened - pausing game');
     }
     
+    // Reset touch control state when opening menu
+    touchActiveRef.current = false;
+    touchDirectionRef.current = null;
+    isDraggingRef.current = false;
+    
     // Always pause the game when menu opens, but keep the current gameState
     // This allows us to distinguish between 'ready' and 'playing' states when resuming
     isPausedRef.current = true;
@@ -974,7 +1130,7 @@ const Game = () => {
     
     // When closing the menu:
     // - If game was in 'playing' state, always unpause and resume gameplay
-    // - If game was in 'ready' state, keep it paused until player launches
+    // - If game was in 'ready' state, unpause to allow paddle movement
     if (gameState === 'playing') {
       if (GAME_SETTINGS.debug) {
         console.log('Menu closed - resuming gameplay');
@@ -983,6 +1139,11 @@ const Game = () => {
       // Always unpause when closing menu in playing state
       isPausedRef.current = false;
       setIsPaused(false);
+      
+      // Reset touch control state
+      touchActiveRef.current = false;
+      touchDirectionRef.current = null;
+      isDraggingRef.current = false;
       
       // CRITICAL: Use setTimeout to ensure state updates have been processed
       // before restarting the animation frame
@@ -1000,9 +1161,24 @@ const Game = () => {
         }
       }, 0);
     } else if (gameState === 'ready') {
-      // Keep it paused until player launches with spacebar/up arrow
-      isPausedRef.current = true;
-      setIsPaused(true);
+      // In ready state, unpause to allow paddle movement
+      isPausedRef.current = false;
+      setIsPaused(false);
+      
+      // Reset touch control state
+      touchActiveRef.current = false;
+      touchDirectionRef.current = null;
+      isDraggingRef.current = false;
+      
+      // Force restart animation frame
+      setTimeout(() => {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = undefined;
+        }
+        renderGame();
+        animationRef.current = requestAnimationFrame(gameLoop);
+      }, 0);
     }
     // Won and levelFailed states don't need any special handling when closing menu
   }, [gameState, gameLoop, renderGame]);
@@ -1012,11 +1188,12 @@ const Game = () => {
     if (gameState === 'ready') {
       // Set ball in motion with random initial angle
       const speed = GAME_SETTINGS.ball.baseSpeed;
-      const angle = Math.random() > 0.5 ? Math.PI / 4 : -Math.PI / 4;
+      // Use a narrower angle range for more predictable launch (between -30 and 30 degrees)
+      const angle = (Math.random() * (Math.PI / 3)) - (Math.PI / 6);
       setBall(prev => ({
         ...prev,
         dx: Math.sin(angle) * speed,
-        dy: -Math.cos(angle) * speed,
+        dy: -Math.cos(angle) * speed, // Always launch upward
         speed: speed
       }));
       
@@ -1038,6 +1215,13 @@ const Game = () => {
       
       if (GAME_SETTINGS.debug) {
         console.log(`Toggle pause from ${isPausedRef.current ? 'PAUSED' : 'RUNNING'} to ${newIsPaused ? 'PAUSED' : 'RUNNING'}`);
+      }
+      
+      // Reset touch control state when pausing
+      if (newIsPaused) {
+        touchActiveRef.current = false;
+        touchDirectionRef.current = null;
+        isDraggingRef.current = false;
       }
       
       // Immediately update both the ref and state to ensure synchronization
@@ -1092,11 +1276,23 @@ const Game = () => {
       e.preventDefault();
       handleMenuOpen();
     } else if (CONTROLS.moveLeft.includes(e.key) || CONTROLS.moveLeft.includes(e.code)) {
+      // Allow left-right movement in both ready and playing states
       keysRef.current['ArrowLeft'] = true;
+      if (GAME_SETTINGS.debug && gameStateRef.current === 'ready') {
+        console.log('LEFT key pressed in ready state');
+      }
     } else if (CONTROLS.moveRight.includes(e.key) || CONTROLS.moveRight.includes(e.code)) {
+      // Allow left-right movement in both ready and playing states
       keysRef.current['ArrowRight'] = true;
+      if (GAME_SETTINGS.debug && gameStateRef.current === 'ready') {
+        console.log('RIGHT key pressed in ready state');
+      }
     } else if (CONTROLS.startGame.includes(e.key) || CONTROLS.startGame.includes(e.code)) {
+      // Launch the ball with up arrow key if in ready state
       if (gameState === 'ready') {
+        if (GAME_SETTINGS.debug) {
+          console.log('UP key pressed - launching ball');
+        }
         startGame();
       }
     } else {
@@ -1108,8 +1304,14 @@ const Game = () => {
     if (!(CONTROLS.pause.includes(e.key) || CONTROLS.pause.includes(e.code))) {
       if (CONTROLS.moveLeft.includes(e.key) || CONTROLS.moveLeft.includes(e.code)) {
         keysRef.current['ArrowLeft'] = false;
+        if (GAME_SETTINGS.debug && gameStateRef.current === 'ready') {
+          console.log('LEFT key released in ready state');
+        }
       } else if (CONTROLS.moveRight.includes(e.key) || CONTROLS.moveRight.includes(e.code)) {
         keysRef.current['ArrowRight'] = false;
+        if (GAME_SETTINGS.debug && gameStateRef.current === 'ready') {
+          console.log('RIGHT key released in ready state');
+        }
       } else {
         keysRef.current[e.code] = false;
       }
@@ -1449,6 +1651,153 @@ const Game = () => {
     }
   }, 100);
 
+  // Add touch control handlers
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    if (isPausedRef.current || showMenu) return;
+    
+    e.preventDefault();
+    const touch = e.touches[0];
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const canvasRect = canvas.getBoundingClientRect();
+    const touchX = touch.clientX - canvasRect.left;
+    
+    // If game is in ready state, launch the ball on any touch
+    if (gameStateRef.current === 'ready') {
+      startGame();
+      return;
+    }
+    
+    // Only proceed with paddle controls if game is playing
+    if (gameStateRef.current !== 'playing') return;
+    
+    // Check if touch is directly on the paddle for dragging
+    const currentPaddle = paddleRef.current;
+    const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
+    const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
+    const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
+    const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
+    
+    if (touchX >= paddleLeft && touchX <= paddleRight && 
+        touch.clientY - canvasRect.top >= paddleTop && 
+        touch.clientY - canvasRect.top <= paddleBottom) {
+      // Dragging the paddle
+      isDraggingRef.current = true;
+      lastTouchXRef.current = touchX;
+    } else {
+      // Tap left/right to move
+      touchActiveRef.current = true;
+      touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
+    }
+  }, [showMenu, startGame]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (isPausedRef.current || showMenu) return;
+    
+    e.preventDefault();
+    const touch = e.touches[0];
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Allow paddle movement in both ready and playing states
+    if (gameStateRef.current !== 'ready' && gameStateRef.current !== 'playing') return;
+    
+    const canvasRect = canvas.getBoundingClientRect();
+    const touchX = touch.clientX - canvasRect.left;
+    
+    if (isDraggingRef.current) {
+      // Move paddle based on touch movement
+      const deltaX = touchX - lastTouchXRef.current;
+      
+      setPaddle(prev => {
+        const scaleFactor = canvas.width / canvas.clientWidth;
+        const newX = Math.max(0, Math.min(canvas.width - prev.width, prev.x + deltaX * scaleFactor));
+        return { ...prev, x: newX };
+      });
+      
+      lastTouchXRef.current = touchX;
+    } else {
+      // If not dragging, update direction based on touch position
+      touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
+      touchActiveRef.current = true;
+    }
+  }, [showMenu]);
+
+  const handleTouchEnd = useCallback((e: TouchEvent) => {
+    e.preventDefault();
+    touchActiveRef.current = false;
+    touchDirectionRef.current = null;
+    isDraggingRef.current = false;
+  }, []);
+
+  // Add mouse controls for desktop users
+  const handleMouseDown = useCallback((e: MouseEvent) => {
+    if (isPausedRef.current || showMenu) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Launch the ball if in ready state
+    if (gameStateRef.current === 'ready') {
+      startGame();
+    }
+  }, [showMenu, startGame]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isPausedRef.current || showMenu) return;
+    if (gameStateRef.current !== 'ready' && gameStateRef.current !== 'playing') return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Only move paddle if mouse button is pressed (for dragging)
+    if (e.buttons === 1) {
+      const canvasRect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - canvasRect.left;
+      const scaleFactor = canvas.width / canvas.clientWidth;
+      
+      setPaddle(prev => {
+        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
+          (mouseX * scaleFactor) - (prev.width / 2)));
+        return { ...prev, x: newX };
+      });
+    }
+  }, [showMenu]);
+
+  // Add mouse event listeners
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Add touch event listeners
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    
+    // Add mouse event listeners for desktop
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    
+    return () => {
+      // Remove event listeners
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      canvas.removeEventListener('touchend', handleTouchEnd);
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleMouseDown, handleMouseMove]);
+
+  // Add a special handler for the touch controls hint to allow starting the game
+  const handleHintTouchStart = useCallback((e: React.TouchEvent) => {
+    if (gameState === 'ready') {
+      e.preventDefault();
+      e.stopPropagation();
+      startGame();
+    }
+  }, [gameState, startGame]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
       {/* Header Bar */}
@@ -1543,6 +1892,65 @@ const Game = () => {
                 gridRow: '1 / -1'
               }}
             />
+            
+            {/* Touch Controls Hint */}
+            {showTouchControls && touchHintVisible && (gameState === 'ready' || gameState === 'playing') && !showMenu && !['won', 'levelFailed'].includes(gameState) && (
+              <div 
+                className="absolute bottom-24 md:bottom-32 left-0 right-0 flex justify-center items-center z-50"
+                onTouchStart={gameState === 'ready' ? handleHintTouchStart : undefined}
+              >
+                <div className={`bg-black/70 p-3 rounded-xl text-white text-center transition-opacity duration-500 ${gameState === 'playing' ? 'opacity-70 pointer-events-none' : 'opacity-90'} animate-fadeIn`}>
+                  <p className="text-base font-bold mb-2">Touch Controls</p>
+                  <div className="flex justify-center gap-4 mb-1">
+                    <div className="flex flex-col items-center">
+                      <img src={tap} alt="Tap" className="w-10 h-10 mb-1 animate-pulse" />
+                      <span className="text-xs">Tap sides to move</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <img src={drag} alt="Drag" className="w-10 h-10 mb-1 animate-bounce" />
+                      <span className="text-xs">Drag paddle</span>
+                    </div>
+                  </div>
+                  {gameState === 'ready' && (
+                    <p className="text-xs mt-1 animate-pulse">Tap anywhere to launch ball</p>
+                  )}
+                </div>
+                <style>{`
+                  @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                  .animate-fadeIn {
+                    animation: fadeIn 0.5s ease-out;
+                  }
+                `}</style>
+              </div>
+            )}
+            
+            {/* Keyboard Controls Hint */}
+            {showKeyboardControls && keyboardHintVisible && (gameState === 'ready' || gameState === 'playing') && !showMenu && !['won', 'levelFailed'].includes(gameState) && (
+              <div className="absolute top-24 left-0 right-0 flex justify-center items-center pointer-events-none z-50">
+                <div className={`bg-black/70 p-3 rounded-xl text-white text-center transition-opacity duration-500 ${gameState === 'playing' ? 'opacity-70' : 'opacity-90'} animate-fadeIn`}>
+                  <p className="text-base font-bold mb-2">Keyboard Controls</p>
+                  <div className="flex justify-center gap-6 mb-1">
+                    <div className="flex flex-col items-center">
+                      <div className="flex gap-1 mb-1">
+                        <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">←</div>
+                        <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">→</div>
+                      </div>
+                      <span className="text-xs">Move paddle</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center mb-1">↑</div>
+                      <span className="text-xs">Launch ball</span>
+                    </div>
+                  </div>
+                  {gameState === 'ready' && (
+                    <p className="text-xs mt-2 animate-pulse">Position paddle and press ↑ to start</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

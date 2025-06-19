@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PARTICLE_SETTINGS, getDeviceType, getParticleSettings } from '@/lib/particleConfig';
+import { PARTICLE_SETTINGS, getDeviceType, getParticleSettings, adjustSettingsForPerformance } from '@/lib/particleConfig';
 
 interface Particle {
     x: number;
@@ -46,6 +46,8 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
     const scaleRef = useRef<{ x: number; y: number }>({ x: 1, y: 1 });
     const [deviceSettings, setDeviceSettings] = useState(getParticleSettings());
     const isMobileRef = useRef(false);
+    const lastFrameTimeRef = useRef(0);
+    const frameThrottleRef = useRef(0); // For mobile throttling
 
     // Initialize particles
     useEffect(() => {
@@ -53,17 +55,12 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
         const checkDevice = () => {
             const width = window.innerWidth;
             isMobileRef.current = width < 768; // Mobile devices are below 768px
+            // Set frame throttle based on device type
+            frameThrottleRef.current = isMobileRef.current ? 2 : 0; // Skip every other frame on mobile
         };
 
         checkDevice();
         window.addEventListener('resize', checkDevice);
-
-        // If mobile device, don't initialize particles
-        if (isMobileRef.current) {
-            return () => {
-                window.removeEventListener('resize', checkDevice);
-            };
-        }
 
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -92,8 +89,9 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
         };
         resizeCanvas();
 
-        // Get current device settings
-        const currentSettings = getParticleSettings();
+        // Get current device settings and adjust for performance
+        const baseSettings = getParticleSettings();
+        const currentSettings = adjustSettingsForPerformance(baseSettings);
         setDeviceSettings(currentSettings);
 
         // Use provided props or fall back to device settings
@@ -130,9 +128,24 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
         }
         particlesRef.current = particles;
         startTimeRef.current = performance.now();
+        lastFrameTimeRef.current = performance.now();
 
         // Animation loop
         const animate = (currentTime: number) => {
+            // Throttle frames for mobile devices
+            if (isMobileRef.current) {
+                const frameSkip = frameThrottleRef.current;
+                if (frameSkip > 0) {
+                    const elapsed = currentTime - lastFrameTimeRef.current;
+                    // Skip frames based on throttle setting
+                    if (elapsed < (1000 / 30) * frameSkip) { // Target 30fps on mobile
+                        animationFrameRef.current = requestAnimationFrame(animate);
+                        return;
+                    }
+                }
+                lastFrameTimeRef.current = currentTime;
+            }
+
             const elapsed = currentTime - startTimeRef.current;
             const progress = Math.min(elapsed / finalDuration, 1);
 
@@ -155,17 +168,27 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
                 ctx.rotate(particle.rotation);
                 ctx.scale(particle.scale, particle.scale);
 
-                // Draw particle shape (triangle)
-                ctx.beginPath();
-                ctx.moveTo(0, -particle.size);
-                ctx.lineTo(particle.size, particle.size);
-                ctx.lineTo(-particle.size, particle.size);
-                ctx.closePath();
+                // Use simpler shapes for mobile devices to improve performance
+                if (isMobileRef.current) {
+                    // Simple circle for mobile
+                    ctx.beginPath();
+                    ctx.arc(0, 0, particle.size, 0, Math.PI * 2);
+                    ctx.closePath();
+                } else {
+                    // Triangle shape for desktop/tablet
+                    ctx.beginPath();
+                    ctx.moveTo(0, -particle.size);
+                    ctx.lineTo(particle.size, particle.size);
+                    ctx.lineTo(-particle.size, particle.size);
+                    ctx.closePath();
+                }
 
-                // Add glow effect if enabled
+                // Add glow effect if enabled (reduced for mobile)
                 if (glow) {
                     ctx.shadowColor = particle.color;
-                    ctx.shadowBlur = currentSettings.glowIntensity * Math.min(scaleRef.current.x, scaleRef.current.y);
+                    ctx.shadowBlur = isMobileRef.current 
+                        ? currentSettings.glowIntensity * 0.5 * Math.min(scaleRef.current.x, scaleRef.current.y)
+                        : currentSettings.glowIntensity * Math.min(scaleRef.current.x, scaleRef.current.y);
                 }
 
                 ctx.fillStyle = particle.color;
@@ -188,14 +211,7 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
         // Add resize listener
         const handleResize = () => {
             checkDevice();
-            if (isMobileRef.current) {
-                // Clean up animation if switching to mobile
-                if (animationFrameRef.current) {
-                    cancelAnimationFrame(animationFrameRef.current);
-                }
-                return;
-            }
-
+            
             resizeCanvas();
             const newSettings = getParticleSettings();
             setDeviceSettings(newSettings);
@@ -219,11 +235,6 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
             window.removeEventListener('resize', checkDevice);
         };
     }, [x, y, color, count, size, duration, intensity, glow]);
-
-    // Don't render canvas for mobile devices
-    if (isMobileRef.current) {
-        return null;
-    }
 
     return (
         <canvas

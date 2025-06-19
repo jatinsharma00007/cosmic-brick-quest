@@ -28,11 +28,11 @@ export const PARTICLE_SETTINGS: ParticleSettings = {
         glowIntensity: 8
     },
     mobile: {
-        size: 1,
-        count: 5,
-        duration: 800,
-        intensity: 0.5,
-        glowIntensity: 3
+        size: 2.5,
+        count: 8,
+        duration: 600,
+        intensity: 0.7,
+        glowIntensity: 5
     }
 };
 
@@ -47,4 +47,62 @@ export const getDeviceType = (width: number): keyof ParticleSettings => {
 export const getParticleSettings = (): ParticleDeviceSettings => {
     const width = window.innerWidth;
     return PARTICLE_SETTINGS[getDeviceType(width)];
+};
+
+// Performance detection and settings adjustment
+const performanceCache = {
+    lastCheck: 0,
+    fps: 60,
+    adjustmentFactor: 1.0
+};
+
+// Helper to adjust settings based on detected performance
+export const adjustSettingsForPerformance = (settings: ParticleDeviceSettings): ParticleDeviceSettings => {
+    const now = performance.now();
+    
+    // Only check performance every 5 seconds
+    if (now - performanceCache.lastCheck > 5000) {
+        // Simple FPS estimation based on requestAnimationFrame timing
+        let frameCount = 0;
+        let lastTime = performance.now();
+        
+        const checkFps = () => {
+            const currentTime = performance.now();
+            frameCount++;
+            
+            if (currentTime - lastTime >= 1000) {
+                // Calculate FPS and store it
+                performanceCache.fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                
+                // Adjust factor based on FPS
+                if (performanceCache.fps < 30) {
+                    performanceCache.adjustmentFactor = 0.5; // Reduce particle effects by half
+                } else if (performanceCache.fps < 45) {
+                    performanceCache.adjustmentFactor = 0.75; // Reduce by 25%
+                } else {
+                    performanceCache.adjustmentFactor = 1.0; // No reduction
+                }
+                
+                performanceCache.lastCheck = now;
+                return;
+            }
+            
+            requestAnimationFrame(checkFps);
+        };
+        
+        requestAnimationFrame(checkFps);
+    }
+    
+    // Apply adjustment factor to settings
+    const isMobile = window.innerWidth < 768;
+    const adjustmentFactor = isMobile ? performanceCache.adjustmentFactor : 1.0;
+    
+    return {
+        ...settings,
+        count: Math.max(3, Math.floor(settings.count * adjustmentFactor)),
+        size: settings.size * adjustmentFactor,
+        glowIntensity: settings.glowIntensity * adjustmentFactor
+    };
 }; 
