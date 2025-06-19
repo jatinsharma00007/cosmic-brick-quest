@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Lock, Star } from 'lucide-react';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import useGameInteraction from '@/hooks/use-game-interaction';
 
 interface LevelData {
   stars: number;
@@ -13,6 +14,19 @@ interface LevelData {
 const LevelSelect = () => {
   const navigate = useNavigate();
   const [levelData, setLevelData] = useState<{ [key: string]: LevelData }>({});
+  const [progress, setProgress] = useState<Record<string, any>>({});
+  const [totalStars, setTotalStars] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Apply game interaction optimizations with scroll allowed for level selection
+  useGameInteraction(containerRef, {
+    preventSelection: true,
+    preventContextMenu: true,
+    preventZoom: true,
+    // Allow scrolling since this is a level selection page with potentially many levels
+    preventScroll: false,
+    addViewportMeta: true
+  });
 
   useEffect(() => {
     document.title = "Level Select - Brick Breaker";
@@ -59,7 +73,7 @@ const LevelSelect = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-2 sm:p-6 overflow-y-auto">
+    <div className="min-h-screen bg-gradient-to-b from-blue-950 to-purple-900 py-8 px-4" ref={containerRef}>
       <Button
         onClick={() => navigate('/')}
         className="fixed top-2 left-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg z-50"

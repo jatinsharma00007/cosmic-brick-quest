@@ -8,6 +8,7 @@ import { GAME_SETTINGS, SCORE_SETTINGS, CONTROLS, GAME_SIZES } from '../lib/conf
 import { gameToOverlayCoords } from '../lib/utils';
 import ParticleEffect from '@/components/ParticleEffect';
 import { getParticleSettings, adjustSettingsForPerformance } from '@/lib/particleConfig';
+import useGameInteraction from '@/hooks/use-game-interaction';
 
 import drag from '/assets/drag.png';
 import tap from '/assets/tap.png';
@@ -281,6 +282,8 @@ interface ParticleEffectState {
 }
 
 const Game = () => {
+  // Add a ref for the game container
+  const gameContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -296,6 +299,11 @@ const Game = () => {
   const isDraggingRef = useRef(false);
   const lastTouchXRef = useRef(0);
   const hasTouchSupportRef = useRef(false);
+  
+  // Add refs for mouse controls
+  const mouseStartPosRef = useRef<{x: number, y: number} | null>(null);
+  const mouseStartTimeRef = useRef<number | null>(null);
+  const isMouseDragDetectedRef = useRef(false);
 
   const [isPaused, setIsPaused] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -724,7 +732,7 @@ const Game = () => {
             }
             targetPaddleXRef.current = newX; // Update target position
             return {
-              ...prev,
+            ...prev,
               x: newX
             };
           });
@@ -774,8 +782,8 @@ const Game = () => {
           
           // If we're close enough to target, snap to it and clear the target
           if (Math.abs(distance) < 2) {
-            setPaddle(prev => ({
-              ...prev,
+          setPaddle(prev => ({
+            ...prev,
               x: targetX
             }));
             paddleVelocityRef.current = 0;
@@ -792,215 +800,215 @@ const Game = () => {
             setPaddle(prev => ({
               ...prev,
               x: Math.max(0, Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + paddleVelocityRef.current))
-            }));
+          }));
           }
         }
 
         // Update ball position only if game is playing
         if (currentGameState === 'playing') {
           // Ball movement and collision logic for playing state
-          const updateBall = (prevBall: Ball) => {
-            if (prevBall.speed === 0) return prevBall; // Don't move ball if speed is 0
+        const updateBall = (prevBall: Ball) => {
+          if (prevBall.speed === 0) return prevBall; // Don't move ball if speed is 0
 
-            let newX = prevBall.x + prevBall.dx;
-            let newY = prevBall.y + prevBall.dy;
-            let newDx = prevBall.dx;
-            let newDy = prevBall.dy;
+          let newX = prevBall.x + prevBall.dx;
+          let newY = prevBall.y + prevBall.dy;
+          let newDx = prevBall.dx;
+          let newDy = prevBall.dy;
 
-            // Wall collisions with bounce effect
-            if (newX <= prevBall.radius) {
-              newDx = Math.abs(newDx);
-              newX = prevBall.radius;
-            } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
-              newDx = -Math.abs(newDx);
-              newX = GAME_SETTINGS.canvas.width - prevBall.radius;
-            }
-            if (newY <= prevBall.radius) {
-              newDy = Math.abs(newDy);
-              newY = prevBall.radius;
-            }
+          // Wall collisions with bounce effect
+          if (newX <= prevBall.radius) {
+            newDx = Math.abs(newDx);
+            newX = prevBall.radius;
+          } else if (newX >= GAME_SETTINGS.canvas.width - prevBall.radius) {
+            newDx = -Math.abs(newDx);
+            newX = GAME_SETTINGS.canvas.width - prevBall.radius;
+          }
+          if (newY <= prevBall.radius) {
+            newDy = Math.abs(newDy);
+            newY = prevBall.radius;
+          }
 
-            // Ball lost - lose a life
-            if (newY >= GAME_SETTINGS.canvas.height && currentGameState === 'playing') {
-              if (!isResettingRef.current) {
-                isResettingRef.current = true;
-                setLives(currentLives => {
-                  if (currentLives > 1) {
-                    setTimeout(() => {
-                      isResettingRef.current = false;
-                      resetBallAndPaddle();
-                    }, 1000);
-                  } else {
+          // Ball lost - lose a life
+          if (newY >= GAME_SETTINGS.canvas.height && currentGameState === 'playing') {
+            if (!isResettingRef.current) {
+              isResettingRef.current = true;
+              setLives(currentLives => {
+                if (currentLives > 1) {
+                  setTimeout(() => {
                     isResettingRef.current = false;
-                  }
-                  return currentLives - 1;
-                });
-              }
-              return prevBall;
+                    resetBallAndPaddle();
+                  }, 1000);
+                } else {
+                  isResettingRef.current = false;
+                }
+                return currentLives - 1;
+              });
             }
+            return prevBall;
+          }
 
-            // Enhanced paddle collision with angle calculation
-            const currentPaddle = paddleRef.current;
-            if (newY + prevBall.radius >= currentPaddle.y &&
-              newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
-              newX >= currentPaddle.x &&
-              newX <= currentPaddle.x + currentPaddle.width) {
-              
-              // Calculate hit position relative to paddle center (-1 to 1)
-              const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
+          // Enhanced paddle collision with angle calculation
+          const currentPaddle = paddleRef.current;
+          if (newY + prevBall.radius >= currentPaddle.y &&
+            newY - prevBall.radius <= currentPaddle.y + currentPaddle.height &&
+            newX >= currentPaddle.x &&
+            newX <= currentPaddle.x + currentPaddle.width) {
+            
+            // Calculate hit position relative to paddle center (-1 to 1)
+            const hitPos = (newX - (currentPaddle.x + currentPaddle.width / 2)) / (currentPaddle.width / 2);
 
-              // Calculate bounce angle (max 75 degrees)
-              const angle = hitPos * (Math.PI / 3);
+            // Calculate bounce angle (max 75 degrees)
+            const angle = hitPos * (Math.PI / 3);
 
-              // Maintain ball speed but adjust direction
-              const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
-              newDx = speed * Math.sin(angle);
-              newDy = -speed * Math.cos(angle);
+            // Maintain ball speed but adjust direction
+            const speed = Math.sqrt(prevBall.dx * prevBall.dx + prevBall.dy * prevBall.dy);
+            newDx = speed * Math.sin(angle);
+            newDy = -speed * Math.cos(angle);
 
-              // Ensure ball doesn't get stuck in paddle
-              newY = currentPaddle.y - prevBall.radius;
+            // Ensure ball doesn't get stuck in paddle
+            newY = currentPaddle.y - prevBall.radius;
 
-              return {
-                ...prevBall,
-                x: newX,
-                y: newY,
-                dx: newDx,
-                dy: newDy,
-                speed: speed,
-                baseSpeed: speed
-              };
-            }
+            return {
+              ...prevBall,
+              x: newX,
+              y: newY,
+              dx: newDx,
+              dy: newDy,
+              speed: speed,
+              baseSpeed: speed
+            };
+          }
 
-            return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
-          };
+          return { ...prevBall, x: newX, y: newY, dx: newDx, dy: newDy };
+        };
 
-          setBall(updateBall);
+        setBall(updateBall);
 
-          // Enhanced brick collision detection
-          setBricks(currentBricks => {
-            const updatedBricks = [...currentBricks];
-            let scoreIncrease = 0;
-            let hitDetected = false;
-            const currentBall = ballRef.current;
-            let newBricksBroken = 0;
-            let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
+        // Enhanced brick collision detection
+        setBricks(currentBricks => {
+          const updatedBricks = [...currentBricks];
+          let scoreIncrease = 0;
+          let hitDetected = false;
+          const currentBall = ballRef.current;
+          let newBricksBroken = 0;
+          let floatingScoreToAdd: { x: number, y: number, value: number } | null = null;
 
-            // Check collision cooldown
-            if (collisionCooldownRef.current > 0) {
-              collisionCooldownRef.current--;
-              return updatedBricks;
-            }
+          // Check collision cooldown
+          if (collisionCooldownRef.current > 0) {
+            collisionCooldownRef.current--;
+            return updatedBricks;
+          }
 
-            for (let i = 0; i < updatedBricks.length; i++) {
-              const brick = updatedBricks[i];
-              if (!brick.destroyed) {
-                if (isBallCollidingWithBrick(currentBall, brick)) {
-                  // Resolve collision and update ball direction
-                  const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
-                  setBall(prev => ({ ...prev, dx, dy, speed }));
-                  hitDetected = true;
+          for (let i = 0; i < updatedBricks.length; i++) {
+            const brick = updatedBricks[i];
+            if (!brick.destroyed) {
+              if (isBallCollidingWithBrick(currentBall, brick)) {
+                // Resolve collision and update ball direction
+                const { dx, dy, speed } = resolveBallBrickCollision(currentBall, brick);
+                setBall(prev => ({ ...prev, dx, dy, speed }));
+                hitDetected = true;
 
-                  // Set collision cooldown
-                  collisionCooldownRef.current = COLLISION_COOLDOWN;
+                // Set collision cooldown
+                collisionCooldownRef.current = COLLISION_COOLDOWN;
 
-                  brick.hits += 1;
+                brick.hits += 1;
 
-                  if (brick.hits >= brick.maxHits) {
-                    brick.destroyed = true;
-                    newBricksBroken++;
+                if (brick.hits >= brick.maxHits) {
+                  brick.destroyed = true;
+                  newBricksBroken++;
 
-                    // Add particle effect with device-specific settings
-                    const isMaterial = brick.type === 'material';
-                    const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
+                  // Add particle effect with device-specific settings
+                  const isMaterial = brick.type === 'material';
+                  const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
                     const baseSettings = getParticleSettings();
                     const particleSettings = adjustSettingsForPerformance(baseSettings);
 
-                    setParticleEffects(prev => [
-                      ...prev,
-                      {
-                        id: particleEffectId.current++,
-                        x: brick.x + brick.width / 2,
-                        y: brick.y + brick.height / 2,
-                        color: brick.color,
-                        glow: shouldGlow,
-                        count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
-                        size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
-                        duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
-                        intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
-                      }
-                    ]);
-
-                    // Floating score animation - use brick position
-                    let value = SCORE_SETTINGS.normalBrick;
-                    if (brick.type === 'material' && brick.material) {
-                      value = SCORE_SETTINGS.materialBricks[brick.material].points;
-                    }
-
-                    floatingScoreToAdd = {
+                  setParticleEffects(prev => [
+                    ...prev,
+                    {
+                      id: particleEffectId.current++,
                       x: brick.x + brick.width / 2,
                       y: brick.y + brick.height / 2,
-                      value
-                    };
-
-                    if (brick.type === 'material' && brick.material) {
-                      scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
-                    } else {
-                      scoreIncrease += SCORE_SETTINGS.normalBrick;
+                      color: brick.color,
+                      glow: shouldGlow,
+                      count: shouldGlow ? particleSettings.count + 3 : particleSettings.count,
+                      size: shouldGlow ? particleSettings.size + 0.5 : particleSettings.size,
+                      duration: shouldGlow ? particleSettings.duration + 300 : particleSettings.duration,
+                      intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
                     }
+                  ]);
+
+                  // Floating score animation - use brick position
+                  let value = SCORE_SETTINGS.normalBrick;
+                  if (brick.type === 'material' && brick.material) {
+                    value = SCORE_SETTINGS.materialBricks[brick.material].points;
                   }
 
-                  break;
+                  floatingScoreToAdd = {
+                    x: brick.x + brick.width / 2,
+                    y: brick.y + brick.height / 2,
+                    value
+                  };
+
+                  if (brick.type === 'material' && brick.material) {
+                    scoreIncrease += SCORE_SETTINGS.materialBricks[brick.material].points;
+                  } else {
+                    scoreIncrease += SCORE_SETTINGS.normalBrick;
+                  }
                 }
+
+                break;
               }
             }
+          }
 
-            if (scoreIncrease > 0) {
-              setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
-            }
-            if (newBricksBroken > 0) {
-              setBricksBroken(prev => prev + newBricksBroken);
-            }
-            if (floatingScoreToAdd) {
-              setFloatingScores(prev => [
-                ...prev,
-                {
-                  id: floatingScoreId.current++,
-                  x: floatingScoreToAdd.x,
-                  y: floatingScoreToAdd.y,
-                  value: floatingScoreToAdd.value,
-                },
-              ]);
-              setTimeout(() => {
-                setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
-              }, 1000);
-            }
+          if (scoreIncrease > 0) {
+            setTimeout(() => setScore(prev => prev + scoreIncrease), 0);
+          }
+          if (newBricksBroken > 0) {
+            setBricksBroken(prev => prev + newBricksBroken);
+          }
+          if (floatingScoreToAdd) {
+            setFloatingScores(prev => [
+              ...prev,
+              {
+                id: floatingScoreId.current++,
+                x: floatingScoreToAdd.x,
+                y: floatingScoreToAdd.y,
+                value: floatingScoreToAdd.value,
+              },
+            ]);
+            setTimeout(() => {
+              setFloatingScores(prev => prev.filter(fs => fs.id !== floatingScoreId.current - 1));
+            }, 1000);
+          }
 
-            if (updatedBricks.every(brick => brick.destroyed)) {
-              if (!hasSavedWinRef.current) {
-                const highScore = saveLevelProgress();
-                setScore(highScore);
-                hasSavedWinRef.current = true;
-              }
-              setGameState('won');
-              setTimeout(() => {
-                setShowSummary(true);
-                setSummaryData({
-                  time: Math.floor((Date.now() - levelStartTime) / 1000),
-                  stars: liveStars,
-                  score,
-                });
-              }, 800);
+          if (updatedBricks.every(brick => brick.destroyed)) {
+            if (!hasSavedWinRef.current) {
+              const highScore = saveLevelProgress();
+              setScore(highScore);
+              hasSavedWinRef.current = true;
             }
+            setGameState('won');
+            setTimeout(() => {
+              setShowSummary(true);
+              setSummaryData({
+                time: Math.floor((Date.now() - levelStartTime) / 1000),
+                stars: liveStars,
+                score,
+              });
+            }, 800);
+          }
 
-            return updatedBricks;
-          });
+          return updatedBricks;
+        });
         } else if (currentGameState === 'ready') {
           // Keep ball attached to paddle when in ready state
-          setBall(prev => ({
-            ...prev,
-            x: paddleRef.current.x + paddleRef.current.width / 2,
+        setBall(prev => ({
+          ...prev,
+          x: paddleRef.current.x + paddleRef.current.width / 2,
             y: paddleRef.current.y - prev.radius - 2 // Position ball just above paddle
-          }));
+        }));
         }
       }
 
@@ -1882,10 +1890,12 @@ const Game = () => {
   // Add control preferences
   const [touchControlPreference, setTouchControlPreference] = useState<'tap' | 'drag'>('drag');
   
-  // Add tracking for touch position to distinguish between taps and drags
+  // Add tracking for touch position and timing to distinguish between taps and drags
   const touchStartPosRef = useRef<{x: number, y: number} | null>(null);
+  const touchStartTimeRef = useRef<number | null>(null);
   const isDragDetectedRef = useRef(false);
-  const TAP_THRESHOLD = 10; // pixels of movement allowed before considering it a drag
+  const TAP_THRESHOLD = 10; // pixels
+  const TAP_TIME = 200; // ms - increased from 10ms to be more forgiving
   
   // Initialize control preference from localStorage
   useEffect(() => {
@@ -1903,74 +1913,66 @@ const Game = () => {
   
   // Update touch handler to use the selected control preference
   const handleTouchStart = useCallback((e: TouchEvent) => {
-    // If control help is open, ignore touch events completely
     if (showControlsHelp) return;
-    
     if (isPausedRef.current || showMenu) return;
-    
     e.preventDefault();
     const touch = e.touches[0];
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
     const canvasRect = canvas.getBoundingClientRect();
     const touchX = touch.clientX - canvasRect.left;
     const touchY = touch.clientY - canvasRect.top;
-    
-    // Store the initial touch position to detect if this becomes a drag
+    // Store the initial touch position and time
     touchStartPosRef.current = { x: touchX, y: touchY };
+    touchStartTimeRef.current = performance.now();
     isDragDetectedRef.current = false;
-    
-    // Check if paddle can be dragged (in both ready and playing states)
-    const currentPaddle = paddleRef.current;
-    const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
-    const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
-    const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
-    const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
-    
-    // Check if touch is on the paddle for dragging
-    const isTouchOnPaddle = (
-      touchX >= paddleLeft && 
-      touchX <= paddleRight && 
-      touchY >= paddleTop && 
-      touchY <= paddleBottom
-    );
-    
-    // READY STATE: Allow launching the ball with tap and positioning with drag
-    if (gameStateRef.current === 'ready') {
-      // For drag controls in ready state, allow dragging from anywhere
-      if (touchControlPreference === 'drag' || isTouchOnPaddle) {
-        isDraggingRef.current = true;
-        lastTouchXRef.current = touchX;
-        
-        // Set target position but don't move paddle directly
-        const scaleFactor = canvas.width / canvas.clientWidth;
-        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-          (touchX * scaleFactor) - (paddleRef.current.width / 2)));
-      }
+    const isMobile = window.innerWidth < 768;
+
+    // For non-mobile devices, use existing logic
+    if (!isMobile) {
+      // Check if paddle can be dragged (in both ready and playing states)
+      const currentPaddle = paddleRef.current;
+      const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
+      const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
+      const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
+      const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
+      const isTouchOnPaddle = (
+        touchX >= paddleLeft && 
+        touchX <= paddleRight && 
+        touchY >= paddleTop && 
+        touchY <= paddleBottom
+      );
       
-      // We'll determine if this is a tap to launch the ball on touchend
-      // This prevents accidental launches when trying to drag
-    } 
-    // PLAYING STATE: Strictly enforce the selected control method
-    else if (gameStateRef.current === 'playing') {
-      if (touchControlPreference === 'drag') {
-        // DRAG PREFERENCE: Allow dragging from anywhere on screen
-        isDraggingRef.current = true;
-        lastTouchXRef.current = touchX;
-        
-        // Set target position but don't move paddle directly
-        const scaleFactor = canvas.width / canvas.clientWidth;
-        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-          (touchX * scaleFactor) - (paddleRef.current.width / 2)));
-      } else if (touchControlPreference === 'tap') {
-        // TAP PREFERENCE: Only allow tapping sides to move paddle
-        // Ignore dragging attempts when tap is the preference
-        touchActiveRef.current = true;
-        touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
+      if (gameStateRef.current === 'ready') {
+        // For drag controls in ready state, allow dragging from anywhere
+        if ((touchControlPreference === 'drag' || isTouchOnPaddle)) {
+          isDraggingRef.current = true;
+          lastTouchXRef.current = touchX;
+          const scaleFactor = canvas.width / canvas.clientWidth;
+          targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+            (touchX * scaleFactor) - (paddleRef.current.width / 2)));
+        }
+      } else if (gameStateRef.current === 'playing') {
+        if (touchControlPreference === 'drag') {
+          isDraggingRef.current = true;
+          lastTouchXRef.current = touchX;
+          const scaleFactor = canvas.width / canvas.clientWidth;
+          targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+            (touchX * scaleFactor) - (paddleRef.current.width / 2)));
+        } else if (touchControlPreference === 'tap') {
+          touchActiveRef.current = true;
+          touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
+        }
       }
+    } 
+    // For mobile devices, use simplified logic - always allow drag anywhere
+    else {
+      // Mobile devices - just store the initial position, no paddle updates yet
+      // We'll wait for actual movement in touchmove to update paddle
+      lastTouchXRef.current = touchX;
+      // Don't set targetPaddleXRef here - only do it during touchmove
     }
-  }, [showMenu, startGame, showControlsHelp, touchControlPreference]);
+  }, [showMenu, showControlsHelp, touchControlPreference]);
   
   // Update mouse handler to implement single-click for launching and dragging for positioning
   const handleMouseDown = useCallback((e: MouseEvent) => {
@@ -1986,6 +1988,11 @@ const Game = () => {
     const mouseX = e.clientX - canvasRect.left;
     const mouseY = e.clientY - canvasRect.top;
     
+    // Store mouse start position and time for tap vs. drag detection
+    mouseStartPosRef.current = { x: mouseX, y: mouseY };
+    mouseStartTimeRef.current = performance.now();
+    isMouseDragDetectedRef.current = false;
+    
     // Check if mouse is on the paddle
     const currentPaddle = paddleRef.current;
     const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
@@ -2000,120 +2007,168 @@ const Game = () => {
       mouseY <= paddleBottom
     );
     
-    // If we're clicking on the paddle, set target position
+    // If we're clicking on the paddle, start potential drag but don't launch
     if (isMouseOnPaddle) {
-      const scaleFactor = canvas.width / canvas.clientWidth;
-      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-        (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
-      return; // Return early to prevent ball launch
-    }
-    
-    // Single click to launch ball if ready and not clicking on paddle
-    if (gameStateRef.current === 'ready' && !isMouseOnPaddle) {
-      startGame();
+      // Only track position for potential drag, but don't move paddle yet
+      // Wait for mousemove to confirm it's a drag
       return;
     }
     
-    // Allow paddle positioning in ready state via dragging
-    if (gameStateRef.current === 'ready') {
-      const scaleFactor = canvas.width / canvas.clientWidth;
-      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-        (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
-    }
-  }, [showMenu, startGame, showControlsHelp]);
+    // For non-paddle clicks, we'll determine if it's a click or drag on mouseup
+    // Don't launch ball here - do it in mouseup if it's a true click
+  }, [showMenu, showControlsHelp]);
   
   // Add touch control handlers
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    // If control help is open, ignore touch events completely
     if (showControlsHelp) return;
-    
     if (isPausedRef.current || showMenu) return;
-    
     e.preventDefault();
     const touch = e.touches[0];
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
-    // Allow paddle movement in both ready and playing states
     if (gameStateRef.current !== 'ready' && gameStateRef.current !== 'playing') return;
-    
     const canvasRect = canvas.getBoundingClientRect();
     const touchX = touch.clientX - canvasRect.left;
     const touchY = touch.clientY - canvasRect.top;
-    
+    const isMobile = window.innerWidth < 768;
+
     // Check if this touch has moved enough to be considered a drag
     if (touchStartPosRef.current) {
       const dx = touchX - touchStartPosRef.current.x;
       const dy = touchY - touchStartPosRef.current.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      
       if (distance > TAP_THRESHOLD) {
         isDragDetectedRef.current = true;
       }
+      if (!isDragDetectedRef.current && touchStartTimeRef.current !== null) {
+        if (performance.now() - touchStartTimeRef.current > TAP_TIME) {
+          isDragDetectedRef.current = true;
+        }
+      }
     }
-    
-    // For drag controls, update target position for the paddle
-    if (isDraggingRef.current && (gameStateRef.current === 'ready' || 
-        (gameStateRef.current === 'playing' && touchControlPreference === 'drag'))) {
-      
-      // Set target position but don't move paddle directly
+
+    // Non-mobile devices: use existing preference-based logic
+    if (!isMobile) {
+      if (isDraggingRef.current && (gameStateRef.current === 'ready' || 
+          (gameStateRef.current === 'playing' && touchControlPreference === 'drag'))) {
+        const scaleFactor = canvas.width / canvas.clientWidth;
+        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+          (touchX * scaleFactor) - (paddleRef.current.width / 2)));
+        lastTouchXRef.current = touchX;
+        // Reset drag flag to allow game loop to move paddle smoothly
+        isDraggingRef.current = false;
+      } else if (gameStateRef.current === 'playing' && touchControlPreference === 'tap') {
+        touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
+        touchActiveRef.current = true;
+      }
+    } 
+    // Mobile devices: only update paddle if we've detected a drag
+    else {
       const scaleFactor = canvas.width / canvas.clientWidth;
-      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-        (touchX * scaleFactor) - (paddleRef.current.width / 2)));
       
-      lastTouchXRef.current = touchX;
-    }
-    // For tap controls during gameplay, update direction based on which half of screen is touched
-    else if (gameStateRef.current === 'playing' && touchControlPreference === 'tap') {
-      touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
-      touchActiveRef.current = true;
+      // Only update paddle position if this is a real drag (moved more than threshold)
+      if (isDragDetectedRef.current) {
+        // Update paddle position only during a true drag gesture
+        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+          (touchX * scaleFactor) - (paddleRef.current.width / 2)));
+        lastTouchXRef.current = touchX;
+        
+        // For mobile, set paddle position directly for immediate response
+        setPaddle(prev => ({
+          ...prev,
+          x: Math.max(0, Math.min(canvas.width - prev.width, 
+            (touchX * scaleFactor) - (prev.width / 2)))
+        }));
+
+        // If we're in the ready state, keep the ball attached to the paddle
+        if (gameStateRef.current === 'ready') {
+          // Calculate paddle position first
+          const paddleX = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+            (touchX * scaleFactor) - (paddleRef.current.width / 2)));
+            
+          // Then position ball at paddle center
+          setBall(prev => ({
+            ...prev,
+            x: paddleX + paddleRef.current.width / 2
+          }));
+        }
+      }
     }
   }, [showMenu, showControlsHelp, touchControlPreference]);
 
   const handleTouchEnd = useCallback((e: TouchEvent) => {
     e.preventDefault();
-    
-    // Check if this was a tap (not a drag) and we're in ready state
-    if (gameStateRef.current === 'ready' && !isDragDetectedRef.current) {
+    const endTime = performance.now();
+    let isTap = false;
+    const isMobile = window.innerWidth < 768;
+
+    // Debug log
+    console.log('TouchEnd - gameState:', gameStateRef.current, 
+      'isDragDetected:', isDragDetectedRef.current,
+      'touchStartTime:', touchStartTimeRef.current ? (endTime - touchStartTimeRef.current) + 'ms' : 'null');
+
+    if (touchStartPosRef.current && touchStartTimeRef.current !== null) {
       const canvas = canvasRef.current;
-      if (!canvas) return;
-      
-      // Get the current paddle position to check if touch was on paddle
-      const currentPaddle = paddleRef.current;
-      const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
-      const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
-      const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
-      const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
-      
-      // Only launch if the touch was not on the paddle
-      if (touchStartPosRef.current) {
-        const { x, y } = touchStartPosRef.current;
-        const isTouchOnPaddle = (
-          x >= paddleLeft && 
-          x <= paddleRight && 
-          y >= paddleTop && 
-          y <= paddleBottom
-        );
+      if (canvas) {
+        const touch = e.changedTouches[0];
+        const canvasRect = canvas.getBoundingClientRect();
+        const touchX = touch.clientX - canvasRect.left;
+        const touchY = touch.clientY - canvasRect.top;
+        const dx = touchX - touchStartPosRef.current.x;
+        const dy = touchY - touchStartPosRef.current.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const duration = endTime - touchStartTimeRef.current;
         
-        if (!isTouchOnPaddle) {
-          // This was a tap (not a drag) and not on the paddle, so launch the ball
-          startGame();
+        console.log('Tap check - distance:', distance, 'duration:', duration, 
+          'isDrag:', isDragDetectedRef.current, 'threshold:', TAP_THRESHOLD);
+        
+        // Check if this was a tap (both for mobile and non-mobile)
+        if (distance <= TAP_THRESHOLD && duration <= TAP_TIME && !isDragDetectedRef.current) {
+          isTap = true;
+          console.log('TAP DETECTED!');
+          
+          // On mobile, we don't need to check if tap was on paddle
+          if (isMobile) {
+            if (gameStateRef.current === 'ready') {
+              console.log('Launching ball on mobile tap');
+              startGame(); // Launch the ball
+            }
+          } 
+          // For non-mobile, check if tap was on the paddle
+          else {
+            // Check if tap was on paddle
+            const currentPaddle = paddleRef.current;
+            const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
+            const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
+            const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
+            const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
+            const isTouchOnPaddle = (
+              touchX >= paddleLeft && 
+              touchX <= paddleRight && 
+              touchY >= paddleTop && 
+              touchY <= paddleBottom
+            );
+            
+            // Launch ball only if tap was not on paddle
+            if (gameStateRef.current === 'ready' && !isTouchOnPaddle) {
+              startGame();
+            }
+          }
         }
       }
     }
-    
+
     // Reset touch tracking
     touchActiveRef.current = false;
     touchDirectionRef.current = null;
     isDraggingRef.current = false;
     touchStartPosRef.current = null;
+    touchStartTimeRef.current = null;
     isDragDetectedRef.current = false;
     
-    // Stop paddle movement immediately by setting target to current position
-    if (touchControlPreference === 'drag') {
-      targetPaddleXRef.current = paddleRef.current.x;
-      paddleVelocityRef.current = 0;
-    }
+    // Important: Do NOT update paddle position in touchend!
+    // Only reset velocity to prevent drift
+    paddleVelocityRef.current = 0;
   }, [gameStateRef, startGame]);
 
   // Add mouse controls for desktop users
@@ -2127,17 +2182,90 @@ const Game = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    // Only move paddle if mouse button is pressed (for dragging)
-    if (e.buttons === 1) {
+    // Check for drag detection
+    if (mouseStartPosRef.current && e.buttons === 1) {
       const canvasRect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - canvasRect.left;
-      const scaleFactor = canvas.width / canvas.clientWidth;
+      const mouseY = e.clientY - canvasRect.top;
       
-      // Set target position but don't move paddle directly
-      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-        (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
+      // Calculate distance moved
+      const dx = mouseX - mouseStartPosRef.current.x;
+      const dy = mouseY - mouseStartPosRef.current.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Check if mouse has moved enough to be considered a drag
+      if (distance > TAP_THRESHOLD) {
+        isMouseDragDetectedRef.current = true;
+      }
+      
+      // If it's a drag (moved > threshold) or on paddle, update paddle position
+      if (isMouseDragDetectedRef.current) {
+        const scaleFactor = canvas.width / canvas.clientWidth;
+        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+          (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
+        
+        // If in ready state, update ball position too
+        if (gameStateRef.current === 'ready') {
+          const paddleX = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+            (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
+            
+          // Update ball to follow paddle
+          setBall(prev => ({
+            ...prev,
+            x: paddleX + paddleRef.current.width / 2
+          }));
+        }
+      }
     }
   }, [showMenu, showControlsHelp]);
+
+  // Add mouseup handler to detect clicks vs drags
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    const endTime = performance.now();
+    let isClick = false;
+    
+    if (mouseStartPosRef.current && mouseStartTimeRef.current !== null) {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const canvasRect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - canvasRect.left;
+        const mouseY = e.clientY - canvasRect.top;
+        const dx = mouseX - mouseStartPosRef.current.x;
+        const dy = mouseY - mouseStartPosRef.current.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const duration = endTime - mouseStartTimeRef.current;
+        
+        // Check if this was a click (short duration, little movement)
+        if (distance <= TAP_THRESHOLD && duration <= TAP_TIME && !isMouseDragDetectedRef.current) {
+          isClick = true;
+          
+          // Check if click was on paddle
+          const currentPaddle = paddleRef.current;
+          const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
+          const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
+          const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
+          const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
+          
+          const isMouseOnPaddle = (
+            mouseX >= paddleLeft && 
+            mouseX <= paddleRight && 
+            mouseY >= paddleTop && 
+            mouseY <= paddleBottom
+          );
+          
+          // Launch ball only if click was not on paddle and in ready state
+          if (gameStateRef.current === 'ready' && !isMouseOnPaddle) {
+            startGame();
+          }
+        }
+      }
+    }
+    
+    // Reset mouse tracking
+    mouseStartPosRef.current = null;
+    mouseStartTimeRef.current = null;
+    isMouseDragDetectedRef.current = false;
+  }, [gameStateRef, startGame]);
 
   // Add mouse event listeners
   useEffect(() => {
@@ -2152,6 +2280,7 @@ const Game = () => {
     // Add mouse event listeners for desktop
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
     
     return () => {
       // Remove event listeners
@@ -2160,8 +2289,9 @@ const Game = () => {
       canvas.removeEventListener('touchend', handleTouchEnd);
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleMouseDown, handleMouseMove]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleMouseDown, handleMouseMove, handleMouseUp]);
 
   // Add a special handler for the touch controls hint to allow starting the game
   const handleHintTouchStart = useCallback((e: React.TouchEvent) => {
@@ -2177,12 +2307,23 @@ const Game = () => {
     e.stopPropagation();
   }, [showControlsHelp]);
 
-
+  // Apply game interaction optimizations to prevent unwanted behaviors
+  useGameInteraction(gameContainerRef, {
+    // Enable all optimizations by default
+    preventSelection: true,
+    preventContextMenu: true,
+    preventZoom: true,
+    preventScroll: true,
+    addViewportMeta: true,
+    // Only enable when not in a menu or modal
+    enabled: !showMenu && !showControlsHelp && !showSummary && 
+      !['won', 'levelFailed'].includes(gameState)
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
       {/* Game UI Container with relative positioning */}
-      <div className="flex flex-col w-full relative">
+      <div className="flex flex-col w-full relative" ref={gameContainerRef}>
         {/* Header Bar */}
         <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} />
 
@@ -2210,15 +2351,15 @@ const Game = () => {
           </div>
         </div>
 
-        {/* Pause Indicator - only show when gameplay is paused but menu is not open */}
+      {/* Pause Indicator - only show when gameplay is paused but menu is not open */}
         {isPaused && gameState === 'playing' && !showMenu && !showControlsHelp && !showCountdown && (
-          <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
-            <div className="bg-black/50 p-4 rounded-lg text-white flex flex-col items-center text-2xl font-bold animate-pulse">
-              <span className="block text-center">PAUSED</span>
-              <div className="text-sm mt-2 text-center">Press SPACE to resume</div>
-            </div>
+        <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+          <div className="bg-black/50 p-4 rounded-lg text-white flex flex-col items-center text-2xl font-bold animate-pulse">
+            <span className="block text-center">PAUSED</span>
+            <div className="text-sm mt-2 text-center">Press SPACE to resume</div>
           </div>
-        )}
+        </div>
+      )}
         
         {/* Countdown overlay - shown after closing help menu */}
         {showCountdown && gameState === 'playing' && (
@@ -2230,85 +2371,85 @@ const Game = () => {
           </div>
         )}
 
-        {/* Game Container */}
-        <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative">
-          <div
-            className={`relative w-full mx-auto ${isMobile ? '' : 'max-w-[800px] aspect-[4/3]'}`}
-            style={isMobile ? { height: '80vh', maxWidth: '100vw', aspectRatio: '4/3' } : {}}
-          >
-            {/* Game Grid Container */}
-            <div className="absolute inset-0 grid" style={{
-              gridTemplateColumns: `repeat(${GAME_SETTINGS.canvas.width / 80}, 1fr)`,
-              gridTemplateRows: `repeat(${GAME_SETTINGS.canvas.height / 25}, 1fr)`,
-            }}>
-              {/* Particle Effects */}
-              {particleEffects.map(effect => (
-                <ParticleEffect
-                  key={effect.id}
-                  x={effect.x}
-                  y={effect.y}
-                  color={effect.color}
-                  count={effect.glow ? 15 : 12}
-                  size={effect.glow ? 5 : 4}
-                  duration={effect.glow ? 1500 : 1200}
-                  intensity={effect.glow ? 1.2 : 1}
-                  glow={effect.glow}
-                />
-              ))}
-
-              {/* Floating Score Overlay */}
-              <div className="absolute inset-0 pointer-events-none z-40">
-                {floatingScores.map(fs => {
-                  const { x, y } = gameToOverlayCoords(fs.x, fs.y);
-                  const canvas = canvasRef.current;
-                  if (!canvas) return null;
-                  const scaleX = canvas.clientWidth / canvas.width;
-                  return (
-                    <span
-                      key={fs.id}
-                      className="absolute select-none text-yellow-400 font-bold"
-                      style={{
-                        left: x,
-                        top: y,
-                        fontSize: `${Math.min(20 * scaleX, 20)}px`,
-                        opacity: 0.9,
-                        animation: 'floatScore 1s ease-out forwards',
-                        position: 'absolute',
-                        pointerEvents: 'none',
-                        willChange: 'transform, opacity'
-                      }}
-                      role="status"
-                      aria-live="polite"
-                    >
-                      +{fs.value}
-                    </span>
-                  );
-                })}
-                <style>{`
-                  @keyframes floatScore {
-                    0% { opacity: 0.9; transform: translateY(0); }
-                    80% { opacity: 1; }
-                    100% { opacity: 0; transform: translateY(-40px); }
-                  }
-                `}</style>
-              </div>
-
-              {/* Canvas */}
-              <canvas
-                ref={canvasRef}
-                width={GAME_SETTINGS.canvas.width}
-                height={GAME_SETTINGS.canvas.height}
-                className="w-full h-full border-4 border-white/20 rounded-lg shadow-2xl bg-gray-900 select-none"
-                style={{
-                  touchAction: 'none',
-                  userSelect: 'none',
-                  WebkitUserSelect: 'none',
-                  MozUserSelect: 'none',
-                  msUserSelect: 'none',
-                  gridColumn: '1 / -1',
-                  gridRow: '1 / -1'
-                }}
+      {/* Game Container */}
+      <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative">
+        <div
+          className={`relative w-full mx-auto ${isMobile ? '' : 'max-w-[800px] aspect-[4/3]'}`}
+          style={isMobile ? { height: '80vh', maxWidth: '100vw', aspectRatio: '4/3' } : {}}
+        >
+          {/* Game Grid Container */}
+          <div className="absolute inset-0 grid" style={{
+            gridTemplateColumns: `repeat(${GAME_SETTINGS.canvas.width / 80}, 1fr)`,
+            gridTemplateRows: `repeat(${GAME_SETTINGS.canvas.height / 25}, 1fr)`,
+          }}>
+            {/* Particle Effects */}
+            {particleEffects.map(effect => (
+              <ParticleEffect
+                key={effect.id}
+                x={effect.x}
+                y={effect.y}
+                color={effect.color}
+                count={effect.glow ? 15 : 12}
+                size={effect.glow ? 5 : 4}
+                duration={effect.glow ? 1500 : 1200}
+                intensity={effect.glow ? 1.2 : 1}
+                glow={effect.glow}
               />
+            ))}
+
+            {/* Floating Score Overlay */}
+            <div className="absolute inset-0 pointer-events-none z-40">
+              {floatingScores.map(fs => {
+                const { x, y } = gameToOverlayCoords(fs.x, fs.y);
+                const canvas = canvasRef.current;
+                if (!canvas) return null;
+                const scaleX = canvas.clientWidth / canvas.width;
+                return (
+                  <span
+                    key={fs.id}
+                    className="absolute select-none text-yellow-400 font-bold"
+                    style={{
+                      left: x,
+                      top: y,
+                      fontSize: `${Math.min(20 * scaleX, 20)}px`,
+                      opacity: 0.9,
+                      animation: 'floatScore 1s ease-out forwards',
+                      position: 'absolute',
+                      pointerEvents: 'none',
+                      willChange: 'transform, opacity'
+                    }}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    +{fs.value}
+                  </span>
+                );
+              })}
+              <style>{`
+                @keyframes floatScore {
+                  0% { opacity: 0.9; transform: translateY(0); }
+                  80% { opacity: 1; }
+                  100% { opacity: 0; transform: translateY(-40px); }
+                }
+              `}</style>
+            </div>
+
+            {/* Canvas */}
+            <canvas
+              ref={canvasRef}
+              width={GAME_SETTINGS.canvas.width}
+              height={GAME_SETTINGS.canvas.height}
+              className="w-full h-full border-4 border-white/20 rounded-lg shadow-2xl bg-gray-900 select-none"
+              style={{
+                touchAction: 'none',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                MozUserSelect: 'none',
+                msUserSelect: 'none',
+                gridColumn: '1 / -1',
+                gridRow: '1 / -1'
+              }}
+            />
               
               {/* Initial Controls Hints - Only show on level 1 and first time */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
@@ -2319,25 +2460,25 @@ const Game = () => {
                     onTouchStart={handleHintTouchStart}
                   >
                     <div className="bg-black/70 p-3 rounded-xl text-white text-center transition-opacity duration-300 animate-fadeIn">
-                      <p className="text-base font-bold mb-2">Touch Controls</p>
+                      <p className="text-base font-bold mb-2">Ready Player?</p>
                       <div className="flex justify-center gap-4 mb-1">
                         <div className="flex flex-col items-center">
                           <img src={drag} alt="Drag" className={`w-10 h-10 mb-1 ${touchControlPreference === 'drag' ? 'animate-bounce' : ''}`} />
-                          <span className="text-xs">
-                            {touchControlPreference === 'drag' ? 'Drag to position precisely' : 'Drag to position'}
+                          <span className="text-xs font-bold">
+                            {touchControlPreference === 'drag' ? 'DRAG' : 'POSITION'}
                           </span>
-                        </div>
+          </div>
                         <div className="flex flex-col items-center">
                           <img src={tap} alt="Tap" className={`w-10 h-10 mb-1 ${touchControlPreference === 'tap' ? 'animate-pulse' : ''}`} />
-                          <span className="text-xs">
-                            {touchControlPreference === 'tap' ? 'Tap sides to move continuously' : 'Tap to launch'}
+                          <span className="text-xs font-bold">
+                            {touchControlPreference === 'tap' ? 'TAP SIDES' : 'TAP TO LAUNCH'}
                           </span>
                         </div>
                       </div>
-                      <p className="text-xs mt-1 animate-pulse">
+                      <p className="text-xs mt-1 animate-pulse font-bold">
                         {touchControlPreference === 'drag' 
-                          ? 'Drag anywhere to position paddle precisely, then tap to launch' 
-                          : 'Tap to launch, then tap sides to move paddle continuously'}
+                          ? 'Position paddle, then tap to start!' 
+                          : 'Tap screen to launch ball!'}
                       </p>
                     </div>
                   </div>
@@ -2347,21 +2488,21 @@ const Game = () => {
                 {showKeyboardControls && keyboardHintVisible && (gameState === 'ready') && !showMenu && !showControlsHelp && !['won', 'levelFailed'].includes(gameState) && level === 1 && !hintsShownBefore && (
                   <div className="pointer-events-none">
                     <div className="bg-black/70 p-3 rounded-xl text-white text-center animate-fadeIn">
-                      <p className="text-base font-bold mb-2">Keyboard Controls</p>
+                      <p className="text-base font-bold mb-2">Ready Player?</p>
                       <div className="flex justify-center gap-6 mb-1">
                         <div className="flex flex-col items-center">
                           <div className="flex gap-1 mb-1">
                             <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">←</div>
                             <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">→</div>
                           </div>
-                          <span className="text-xs">Position paddle</span>
+                          <span className="text-xs font-bold">MOVE</span>
                         </div>
                         <div className="flex flex-col items-center">
                           <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center mb-1">↑</div>
-                          <span className="text-xs">Launch ball</span>
+                          <span className="text-xs font-bold">LAUNCH</span>
                         </div>
                       </div>
-                      <p className="text-xs mt-2 animate-pulse">Position paddle with arrows, press ↑ to start</p>
+                      <p className="text-xs mt-2 animate-pulse font-bold">Position paddle, press ↑ to start!</p>
                     </div>
                   </div>
                 )}
@@ -2415,7 +2556,7 @@ const Game = () => {
                           <p className="text-xs text-gray-300 mt-2">
                             {touchControlPreference === 'drag' 
                               ? 'Drag anywhere on screen to position paddle exactly where you touch (precise control)' 
-                              : 'Tap left or right side of screen to move paddle in that direction (continuous movement)'}
+                              : 'Tap left or right side of screen to move paddle continuously in that direction'}
                           </p>
                           <p className="text-xs text-gray-300 mt-1 italic">
                             Note: In the ready state, both controls are available to position the paddle
@@ -2491,7 +2632,7 @@ const Game = () => {
                           </div>
                           <div>
                             <h3 className="font-bold">Mouse Controls</h3>
-                            <p className="text-sm text-gray-300">Drag to position paddle, click to launch</p>
+                            <p className="text-sm text-gray-300">Drag to position paddle, double-click to launch!</p>
                           </div>
                         </div>
                       </div>
@@ -2505,15 +2646,17 @@ const Game = () => {
                 </div>
               )}
               
-              <style>{`
-                @keyframes fadeIn {
-                  from { opacity: 0; transform: translateY(20px); }
-                  to { opacity: 1; transform: translateY(0); }
-                }
-                .animate-fadeIn {
-                  animation: fadeIn 0.5s ease-out;
-                }
-              `}</style>
+              <style dangerouslySetInnerHTML={{
+                __html: `
+                  @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                  .animate-fadeIn {
+                    animation: fadeIn 0.5s ease-out;
+                  }
+                `
+              }} />
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { useNavigate } from 'react-router-dom';
+import useGameInteraction from '@/hooks/use-game-interaction';
 
 const CRACK_DELAY = 0;
 
@@ -9,12 +10,23 @@ const Index = () => {
   const [isCracked, setIsCracked] = useState(false);
   const [isShattering, setIsShattering] = useState(false);
   const [isZooming, setIsZooming] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.title = "Brick Breaker - Classic Arcade Game";
     const crackTimer = setTimeout(() => setIsCracked(true), CRACK_DELAY);
     return () => clearTimeout(crackTimer);
   }, []);
+
+  // Apply game interaction optimizations for home screen
+  useGameInteraction(containerRef, {
+    preventSelection: true,
+    preventContextMenu: true,
+    preventZoom: true,
+    // No need to prevent scroll on the home page
+    preventScroll: false,
+    addViewportMeta: true
+  });
 
   const handleStart = () => {
     setIsShattering(true);
@@ -30,7 +42,7 @@ const Index = () => {
   ];
 
   return (
-    <div className={`min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center relative overflow-hidden transition-all duration-1000 ${isZooming ? 'animate-zoom-in' : ''}`}>
+    <div className={`min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-600 flex items-center justify-center relative overflow-hidden transition-all duration-1000 ${isZooming ? 'animate-zoom-in' : ''}`} ref={containerRef}>
       <div className={`text-center z-10 transition-all duration-1000 ${isZooming ? 'animate-fade-out' : 'animate-fade-in'} w-full max-w-xs sm:max-w-md md:max-w-2xl p-4 sm:p-8`}>
         {/* Both BRICK and BREAKER with font and crack/shatter effects */}
         {logoWords.map((word, wIdx) => (

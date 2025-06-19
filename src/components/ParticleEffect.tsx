@@ -176,11 +176,11 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
                     ctx.closePath();
                 } else {
                     // Triangle shape for desktop/tablet
-                    ctx.beginPath();
-                    ctx.moveTo(0, -particle.size);
-                    ctx.lineTo(particle.size, particle.size);
-                    ctx.lineTo(-particle.size, particle.size);
-                    ctx.closePath();
+                ctx.beginPath();
+                ctx.moveTo(0, -particle.size);
+                ctx.lineTo(particle.size, particle.size);
+                ctx.lineTo(-particle.size, particle.size);
+                ctx.closePath();
                 }
 
                 // Add glow effect if enabled (reduced for mobile)
@@ -211,7 +211,7 @@ const ParticleEffect: React.FC<ParticleEffectProps> = ({
         // Add resize listener
         const handleResize = () => {
             checkDevice();
-            
+
             resizeCanvas();
             const newSettings = getParticleSettings();
             setDeviceSettings(newSettings);
