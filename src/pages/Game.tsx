@@ -678,7 +678,13 @@ const Game = () => {
     });
   }, [level, lives, gameState, isMobile]);
 
-  // Modify the gameLoop to handle the ready state correctly
+  // Add these refs for smooth movement at the top with other refs
+  const targetPaddleXRef = useRef<number | null>(null);
+  const paddleVelocityRef = useRef(0);
+  const PADDLE_SMOOTH_SPEED = 15; // Speed for smooth movement
+  const MAX_PADDLE_VELOCITY = 25; // Maximum velocity for smooth movement
+
+  // Modify the gameLoop function to include smooth paddle movement
   const gameLoop = useCallback(() => {
     // Prevent multiple frames from being processed simultaneously
     if (isProcessingFrameRef.current) {
@@ -709,13 +715,14 @@ const Game = () => {
       
       // Process paddle movement in both ready and playing states, as long as not paused
       if (!isPaused && (currentGameState === 'ready' || currentGameState === 'playing')) {
-        // Update paddle with keyboard
+        // Keyboard controls - immediate movement
         if (keysRef.current['ArrowLeft']) {
           setPaddle(prev => {
             const newX = Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed);
             if (GAME_SETTINGS.debug && currentGameState === 'ready' && frameCountRef.current % 60 === 0) {
               console.log('Moving paddle LEFT:', prev.x, '->', newX);
             }
+            targetPaddleXRef.current = newX; // Update target position
             return {
               ...prev,
               x: newX
@@ -728,6 +735,7 @@ const Game = () => {
             if (GAME_SETTINGS.debug && currentGameState === 'ready' && frameCountRef.current % 60 === 0) {
               console.log('Moving paddle RIGHT:', prev.x, '->', newX);
             }
+            targetPaddleXRef.current = newX; // Update target position
             return {
               ...prev,
               x: newX
@@ -735,17 +743,55 @@ const Game = () => {
           });
         }
 
-        // Update paddle with touch controls
+        // Update paddle with touch controls (tap method)
         if (touchActiveRef.current && touchDirectionRef.current) {
           if (touchDirectionRef.current === 'left') {
-            setPaddle(prev => ({
-              ...prev,
-              x: Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed * 1.2) // Slightly faster for touch
-            }));
+            setPaddle(prev => {
+              const newX = Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed * 1.2); // Slightly faster for touch
+              targetPaddleXRef.current = newX;
+              return {
+                ...prev,
+                x: newX
+              };
+            });
           } else if (touchDirectionRef.current === 'right') {
+            setPaddle(prev => {
+              const newX = Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed * 1.2);
+              targetPaddleXRef.current = newX;
+              return {
+                ...prev,
+                x: newX
+              };
+            });
+          }
+        }
+
+        // Handle smooth movement towards target position (for drag method)
+        if (targetPaddleXRef.current !== null && !touchActiveRef.current && !isDraggingRef.current) {
+          const currentPaddle = paddleRef.current;
+          const targetX = targetPaddleXRef.current;
+          const distance = targetX - currentPaddle.x;
+          
+          // If we're close enough to target, snap to it and clear the target
+          if (Math.abs(distance) < 2) {
             setPaddle(prev => ({
               ...prev,
-              x: Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed * 1.2)
+              x: targetX
+            }));
+            paddleVelocityRef.current = 0;
+            targetPaddleXRef.current = null;
+          } else {
+            // Otherwise move towards target with acceleration and deceleration
+            // Calculate desired velocity based on distance
+            const desiredVelocity = Math.sign(distance) * Math.min(Math.abs(distance) * 0.2, MAX_PADDLE_VELOCITY);
+            
+            // Smooth acceleration/deceleration
+            paddleVelocityRef.current += (desiredVelocity - paddleVelocityRef.current) * 0.2;
+            
+            // Apply velocity to paddle position
+            setPaddle(prev => ({
+              ...prev,
+              x: Math.max(0, Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + paddleVelocityRef.current))
             }));
           }
         }
@@ -1503,7 +1549,7 @@ const Game = () => {
     const data = saved ? JSON.parse(saved) : {};
     
     const stars = calculateStars(score, lives, bricks);
-    const currentLevelData = data[`level_${level}`] || { score: 0, stars: 0 };
+    const currentLevelData = data[`level_${level}`] || { score: 0 };
 
     // Only update score if it's higher than the previous high score
     const newScore = Math.max(currentLevelData.score || 0, score);
@@ -1897,15 +1943,10 @@ const Game = () => {
         isDraggingRef.current = true;
         lastTouchXRef.current = touchX;
         
-        // Immediately move paddle to touch position
+        // Set target position but don't move paddle directly
         const scaleFactor = canvas.width / canvas.clientWidth;
-        setPaddle(prev => {
-          const newX = Math.max(0, Math.min(canvas.width - prev.width, 
-            (touchX * scaleFactor) - (prev.width / 2)));
-          return { ...prev, x: newX };
-        });
-        
-        // Don't return early here - we'll decide on touchend if this was a tap or drag
+        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+          (touchX * scaleFactor) - (paddleRef.current.width / 2)));
       }
       
       // We'll determine if this is a tap to launch the ball on touchend
@@ -1918,13 +1959,10 @@ const Game = () => {
         isDraggingRef.current = true;
         lastTouchXRef.current = touchX;
         
-        // Immediately move paddle to touch position
+        // Set target position but don't move paddle directly
         const scaleFactor = canvas.width / canvas.clientWidth;
-        setPaddle(prev => {
-          const newX = Math.max(0, Math.min(canvas.width - prev.width, 
-            (touchX * scaleFactor) - (prev.width / 2)));
-          return { ...prev, x: newX };
-        });
+        targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+          (touchX * scaleFactor) - (paddleRef.current.width / 2)));
       } else if (touchControlPreference === 'tap') {
         // TAP PREFERENCE: Only allow tapping sides to move paddle
         // Ignore dragging attempts when tap is the preference
@@ -1962,14 +2000,11 @@ const Game = () => {
       mouseY <= paddleBottom
     );
     
-    // If we're clicking on the paddle, just position it
+    // If we're clicking on the paddle, set target position
     if (isMouseOnPaddle) {
       const scaleFactor = canvas.width / canvas.clientWidth;
-      setPaddle(prev => {
-        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
-          (mouseX * scaleFactor) - (prev.width / 2)));
-        return { ...prev, x: newX };
-      });
+      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+        (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
       return; // Return early to prevent ball launch
     }
     
@@ -1982,11 +2017,8 @@ const Game = () => {
     // Allow paddle positioning in ready state via dragging
     if (gameStateRef.current === 'ready') {
       const scaleFactor = canvas.width / canvas.clientWidth;
-      setPaddle(prev => {
-        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
-          (mouseX * scaleFactor) - (prev.width / 2)));
-        return { ...prev, x: newX };
-      });
+      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+        (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
     }
   }, [showMenu, startGame, showControlsHelp]);
   
@@ -2020,17 +2052,14 @@ const Game = () => {
       }
     }
     
-    // For drag controls, move paddle to exact horizontal touch position
+    // For drag controls, update target position for the paddle
     if (isDraggingRef.current && (gameStateRef.current === 'ready' || 
         (gameStateRef.current === 'playing' && touchControlPreference === 'drag'))) {
       
-      // Move paddle directly to touch position (horizontally centered on touch)
+      // Set target position but don't move paddle directly
       const scaleFactor = canvas.width / canvas.clientWidth;
-      setPaddle(prev => {
-        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
-          (touchX * scaleFactor) - (prev.width / 2)));
-        return { ...prev, x: newX };
-      });
+      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+        (touchX * scaleFactor) - (paddleRef.current.width / 2)));
       
       lastTouchXRef.current = touchX;
     }
@@ -2079,6 +2108,12 @@ const Game = () => {
     isDraggingRef.current = false;
     touchStartPosRef.current = null;
     isDragDetectedRef.current = false;
+    
+    // Stop paddle movement immediately by setting target to current position
+    if (touchControlPreference === 'drag') {
+      targetPaddleXRef.current = paddleRef.current.x;
+      paddleVelocityRef.current = 0;
+    }
   }, [gameStateRef, startGame]);
 
   // Add mouse controls for desktop users
@@ -2098,11 +2133,9 @@ const Game = () => {
       const mouseX = e.clientX - canvasRect.left;
       const scaleFactor = canvas.width / canvas.clientWidth;
       
-      setPaddle(prev => {
-        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
-          (mouseX * scaleFactor) - (prev.width / 2)));
-        return { ...prev, x: newX };
-      });
+      // Set target position but don't move paddle directly
+      targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
+        (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
     }
   }, [showMenu, showControlsHelp]);
 
