@@ -10,8 +10,11 @@ export const GAME_SETTINGS = {
         height: 20,
         moveSpeed: 7,
         initialY: 550,
-        mobileInitialY: 450,  // Higher position for mobile devices
-        tabletInitialY: 500   // Slightly higher position for tablets
+        mobileInitialY: 500,  // Higher position for mobile devices
+        tabletInitialY: 500,  // Slightly higher position for tablets
+        smoothingFactor: 0.25, // Default lerp factor for paddle movement (0-1, higher = more responsive)
+        mouseSmoothingFactor: 0.15, // Default lerp factor for mouse movement (slower than touch)
+        touchSmoothingFactor: 0.3, // Default lerp factor for touch movement (faster than mouse)
     },
     canvas: {
         width: 800,

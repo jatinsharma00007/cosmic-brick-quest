@@ -691,6 +691,11 @@ const Game = () => {
   const paddleVelocityRef = useRef(0);
   const PADDLE_SMOOTH_SPEED = 15; // Speed for smooth movement
   const MAX_PADDLE_VELOCITY = 25; // Maximum velocity for smooth movement
+  
+  // For smoother touch movement
+  const smoothTransitionSpeedRef = useRef(GAME_SETTINGS.paddle.smoothingFactor); // Lerp factor for movement (0.0 - 1.0)
+  const lastFrameTimeRef = useRef(Date.now());
+  const frameRateAdjustmentRef = useRef(1);
 
   // Modify the gameLoop function to include smooth paddle movement
   const gameLoop = useCallback(() => {
@@ -703,6 +708,12 @@ const Game = () => {
     
     // Mark that we're processing a frame
     isProcessingFrameRef.current = true;
+    
+    // Calculate frame time delta for consistent movement regardless of frame rate
+    const now = Date.now();
+    const deltaTime = Math.min(32, now - lastFrameTimeRef.current) / 16.667; // Cap at 32ms, normalize to 60fps
+    lastFrameTimeRef.current = now;
+    frameRateAdjustmentRef.current = deltaTime;
     
     try {
       // Get current state values directly from refs for consistency
@@ -775,35 +786,55 @@ const Game = () => {
         }
 
         // Handle smooth movement towards target position (for drag method)
-        if (targetPaddleXRef.current !== null && !touchActiveRef.current && !isDraggingRef.current) {
+        if (targetPaddleXRef.current !== null) {
           const currentPaddle = paddleRef.current;
           const targetX = targetPaddleXRef.current;
           const distance = targetX - currentPaddle.x;
           
           // If we're close enough to target, snap to it and clear the target
           if (Math.abs(distance) < 2) {
-          setPaddle(prev => ({
-            ...prev,
+            setPaddle(prev => ({
+              ...prev,
               x: targetX
             }));
             paddleVelocityRef.current = 0;
-            targetPaddleXRef.current = null;
+            
+            // Only clear target if not currently dragging
+            if (!isDraggingRef.current) {
+              targetPaddleXRef.current = null;
+            }
           } else {
-            // Otherwise move towards target with acceleration and deceleration
-            // Calculate desired velocity based on distance
-            const desiredVelocity = Math.sign(distance) * Math.min(Math.abs(distance) * 0.2, MAX_PADDLE_VELOCITY);
-            
-            // Smooth acceleration/deceleration
-            paddleVelocityRef.current += (desiredVelocity - paddleVelocityRef.current) * 0.2;
-            
-            // Apply velocity to paddle position
-            setPaddle(prev => ({
-              ...prev,
-              x: Math.max(0, Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + paddleVelocityRef.current))
-          }));
+            // For touch dragging, use smoother lerp-based movement
+            if (isDraggingRef.current) {
+              // Smooth movement using lerp (linear interpolation)
+              // Adjust the speed factor based on frame rate for consistent feel
+              const lerpFactor = smoothTransitionSpeedRef.current * frameRateAdjustmentRef.current;
+              
+              // Calculate new position with lerp
+              const newX = currentPaddle.x + (distance * lerpFactor);
+              
+              setPaddle(prev => ({
+                ...prev,
+                x: Math.max(0, Math.min(GAME_SETTINGS.canvas.width - prev.width, newX))
+              }));
+            } else {
+              // For non-touch movement (keyboard/mouse), use the velocity-based approach
+              // Otherwise move towards target with acceleration and deceleration
+              // Calculate desired velocity based on distance
+              const desiredVelocity = Math.sign(distance) * Math.min(Math.abs(distance) * 0.2, MAX_PADDLE_VELOCITY);
+              
+              // Smooth acceleration/deceleration
+              paddleVelocityRef.current += (desiredVelocity - paddleVelocityRef.current) * 0.2;
+              
+              // Apply velocity to paddle position
+              setPaddle(prev => ({
+                ...prev,
+                x: Math.max(0, Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + paddleVelocityRef.current))
+              }));
+            }
           }
         }
-
+        
         // Update ball position only if game is playing
         if (currentGameState === 'playing') {
           // Ball movement and collision logic for playing state
@@ -1926,6 +1957,10 @@ const Game = () => {
     touchStartPosRef.current = { x: touchX, y: touchY };
     touchStartTimeRef.current = performance.now();
     isDragDetectedRef.current = false;
+    
+    // Set smoothing factor specifically for touch input
+    smoothTransitionSpeedRef.current = GAME_SETTINGS.paddle.touchSmoothingFactor;
+    
     const isMobile = window.innerWidth < 768;
 
     // For non-mobile devices, use existing logic
@@ -1993,6 +2028,9 @@ const Game = () => {
     mouseStartTimeRef.current = performance.now();
     isMouseDragDetectedRef.current = false;
     
+    // Set smoothing factor specifically for mouse input
+    smoothTransitionSpeedRef.current = GAME_SETTINGS.paddle.mouseSmoothingFactor;
+    
     // Check if mouse is on the paddle
     const currentPaddle = paddleRef.current;
     const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
@@ -2055,8 +2093,8 @@ const Game = () => {
         targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
           (touchX * scaleFactor) - (paddleRef.current.width / 2)));
         lastTouchXRef.current = touchX;
-        // Reset drag flag to allow game loop to move paddle smoothly
-        isDraggingRef.current = false;
+        // Set isDraggingRef to true so gameLoop will use smooth movement
+        isDraggingRef.current = true;
       } else if (gameStateRef.current === 'playing' && touchControlPreference === 'tap') {
         touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
         touchActiveRef.current = true;
@@ -2068,30 +2106,16 @@ const Game = () => {
       
       // Only update paddle position if this is a real drag (moved more than threshold)
       if (isDragDetectedRef.current) {
-        // Update paddle position only during a true drag gesture
+        // Don't set paddle position directly - use targetPaddleXRef so gameLoop handles smooth movement
         targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
           (touchX * scaleFactor) - (paddleRef.current.width / 2)));
         lastTouchXRef.current = touchX;
         
-        // For mobile, set paddle position directly for immediate response
-        setPaddle(prev => ({
-          ...prev,
-          x: Math.max(0, Math.min(canvas.width - prev.width, 
-            (touchX * scaleFactor) - (prev.width / 2)))
-        }));
+        // Set dragging flag to true for smooth interpolation in gameLoop
+        isDraggingRef.current = true;
 
         // If we're in the ready state, keep the ball attached to the paddle
-        if (gameStateRef.current === 'ready') {
-          // Calculate paddle position first
-          const paddleX = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-            (touchX * scaleFactor) - (paddleRef.current.width / 2)));
-            
-          // Then position ball at paddle center
-          setBall(prev => ({
-            ...prev,
-            x: paddleX + paddleRef.current.width / 2
-          }));
-        }
+        // But don't set it directly - we'll let the gameLoop handle this
       }
     }
   }, [showMenu, showControlsHelp, touchControlPreference]);
@@ -2166,8 +2190,7 @@ const Game = () => {
     touchStartTimeRef.current = null;
     isDragDetectedRef.current = false;
     
-    // Important: Do NOT update paddle position in touchend!
-    // Only reset velocity to prevent drift
+    // Reset the velocity to prevent drift after a drag ends
     paddleVelocityRef.current = 0;
   }, [gameStateRef, startGame]);
 
@@ -2201,20 +2224,13 @@ const Game = () => {
       // If it's a drag (moved > threshold) or on paddle, update paddle position
       if (isMouseDragDetectedRef.current) {
         const scaleFactor = canvas.width / canvas.clientWidth;
+        
+        // Set target position and mark as dragging for smooth movement 
         targetPaddleXRef.current = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
           (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
         
-        // If in ready state, update ball position too
-        if (gameStateRef.current === 'ready') {
-          const paddleX = Math.max(0, Math.min(canvas.width - paddleRef.current.width, 
-            (mouseX * scaleFactor) - (paddleRef.current.width / 2)));
-            
-          // Update ball to follow paddle
-          setBall(prev => ({
-            ...prev,
-            x: paddleX + paddleRef.current.width / 2
-          }));
-        }
+        // Enable smooth interpolation in the game loop
+        isDraggingRef.current = true;
       }
     }
   }, [showMenu, showControlsHelp]);
@@ -2265,6 +2281,10 @@ const Game = () => {
     mouseStartPosRef.current = null;
     mouseStartTimeRef.current = null;
     isMouseDragDetectedRef.current = false;
+    
+    // Reset dragging state and velocity on mouse up
+    isDraggingRef.current = false;
+    paddleVelocityRef.current = 0;
   }, [gameStateRef, startGame]);
 
   // Add mouse event listeners
