@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { Pause, Play, Home, Menu, Heart, X, RefreshCcw } from 'lucide-react';
+import { Pause, Play, Home, Menu, Heart, X, RefreshCcw, HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import React from 'react';
 import { GAME_SETTINGS, SCORE_SETTINGS, CONTROLS, GAME_SIZES } from '../lib/config';
@@ -68,7 +68,7 @@ interface GameHUDProps {
   handleMenuOpen: () => void;
 }
 const GameHUD = React.memo(({ level, bricksBroken, score, maxPossibleScore, liveStars, lives, handleMenuOpen }: GameHUDProps) => (
-  <div className="bg-black/50 text-white p-2 sm:p-4 flex flex-wrap justify-between items-center gap-2">
+  <div className="bg-black/50 text-white p-2 sm:p-4 pb-4 sm:pb-4 flex flex-wrap justify-between items-center gap-2 relative">
     <div className="font-bold text-base sm:text-lg">Level {level}/100</div>
     <div className="flex gap-2 sm:gap-8 items-center">
       <div className="flex items-center gap-1 text-sm sm:text-base">
@@ -91,7 +91,7 @@ const GameHUD = React.memo(({ level, bricksBroken, score, maxPossibleScore, live
       aria-label="Open Menu"
       tabIndex={0}
     >
-      <Menu size={25} className="sm:w-6 sm:h-6" />
+      <Pause size={25} className="sm:w-6 sm:h-6" />
     </Button>
   </div>
 ));
@@ -364,6 +364,33 @@ const Game = () => {
   const [showKeyboardControls, setShowKeyboardControls] = useState(false);
   const [keyboardHintVisible, setKeyboardHintVisible] = useState(true);
   
+  // Add state for help button functionality
+  const [showControlsHelp, setShowControlsHelp] = useState(false);
+  const [hintsShownBefore, setHintsShownBefore] = useState(false);
+  const wasGamePausedBeforeHelp = useRef(false);
+  
+  // Add states for countdown
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdownValue, setCountdownValue] = useState(2);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Check if hints have been shown before
+  useEffect(() => {
+    const hintsShown = localStorage.getItem('controlsHintsShown');
+    setHintsShownBefore(hintsShown === 'true');
+  }, []);
+  
+  // Show initial hints only for level 1 and if not seen before
+  useEffect(() => {
+    if (level === 1 && !hintsShownBefore && gameState === 'ready') {
+      setTouchHintVisible(true);
+      setKeyboardHintVisible(true);
+    } else {
+      setTouchHintVisible(false);
+      setKeyboardHintVisible(false);
+    }
+  }, [level, hintsShownBefore, gameState]);
+
   // Detect if we're on desktop
   useEffect(() => {
     const checkDesktop = () => {
@@ -375,41 +402,13 @@ const Game = () => {
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
-  // Add keyboard controls hint
+  // Reset hint visibility when game state changes to ready, but only on level 1
   useEffect(() => {
-    if (gameState === 'ready') {
-      setShowKeyboardControls(window.innerWidth >= 768 && !hasTouchSupportRef.current);
-      setKeyboardHintVisible(true);
-    }
-  }, [gameState]);
-  
-  // Hide touch controls hint after a few seconds of gameplay
-  useEffect(() => {
-    if (gameState === 'playing' && touchHintVisible) {
-      const timer = setTimeout(() => {
-        setTouchHintVisible(false);
-      }, 5000); // Hide after 5 seconds of gameplay
-      return () => clearTimeout(timer);
-    }
-  }, [gameState, touchHintVisible]);
-  
-  // Hide keyboard controls hint after a few seconds of gameplay
-  useEffect(() => {
-    if (gameState === 'playing' && keyboardHintVisible) {
-      const timer = setTimeout(() => {
-        setKeyboardHintVisible(false);
-      }, 5000); // Hide after 5 seconds of gameplay
-      return () => clearTimeout(timer);
-    }
-  }, [gameState, keyboardHintVisible]);
-  
-  // Reset touch hint visibility when game state changes to ready
-  useEffect(() => {
-    if (gameState === 'ready') {
+    if (gameState === 'ready' && level === 1 && !hintsShownBefore) {
       setTouchHintVisible(true);
       setKeyboardHintVisible(true);
     }
-  }, [gameState]);
+  }, [gameState, level, hintsShownBefore]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -1183,9 +1182,17 @@ const Game = () => {
     // Won and levelFailed states don't need any special handling when closing menu
   }, [gameState, gameLoop, renderGame]);
 
-  // Add the startGame function before togglePause
+  // Update the startGame function to mark hints as shown
   const startGame = useCallback(() => {
     if (gameState === 'ready') {
+      // Hide hints immediately when ball is launched
+      setTouchHintVisible(false);
+      setKeyboardHintVisible(false);
+      
+      // Mark that hints have been shown
+      localStorage.setItem('controlsHintsShown', 'true');
+      setHintsShownBefore(true);
+      
       // Set ball in motion with random initial angle
       const speed = GAME_SETTINGS.ball.baseSpeed;
       // Use a narrower angle range for more predictable launch (between -30 and 30 degrees)
@@ -1207,6 +1214,167 @@ const Game = () => {
       }
     }
   }, [gameState]);
+
+  // Handle showing help controls
+  const toggleControlsHelp = useCallback(() => {
+    if (!showControlsHelp) {
+      // Store current pause state before showing help
+      wasGamePausedBeforeHelp.current = isPausedRef.current;
+      
+      // Pause the game when showing controls, but remember the state
+      isPausedRef.current = true;
+      setIsPaused(true);
+      
+      // Show appropriate controls based on device
+      setShowControlsHelp(true);
+    } else {
+      // Hide controls help
+      setShowControlsHelp(false);
+      
+      // Handle state restoration based on game state:
+      if (gameState === 'ready') {
+        // Always unpause in ready state to allow paddle movement
+        isPausedRef.current = false;
+        setIsPaused(false);
+      } else if (gameState === 'playing') {
+        // For playing state, start the countdown if it wasn't paused before
+        if (!wasGamePausedBeforeHelp.current) {
+          // Start countdown
+          setCountdownValue(2);
+          setShowCountdown(true);
+          
+          // Clear any existing countdown
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
+          
+          // Start new countdown
+          countdownTimerRef.current = setInterval(() => {
+            setCountdownValue(prev => {
+              if (prev <= 1) {
+                // When countdown reaches 0, clear interval and unpause game
+                if (countdownTimerRef.current) {
+                  clearInterval(countdownTimerRef.current);
+                  countdownTimerRef.current = null;
+                }
+                setShowCountdown(false);
+                
+                // Unpause the game
+                isPausedRef.current = false;
+                setIsPaused(false);
+                
+                // Force restart animation frame
+                if (animationRef.current) {
+                  cancelAnimationFrame(animationRef.current);
+                  animationRef.current = undefined;
+                }
+                renderGame(); // Force an immediate render
+                animationRef.current = requestAnimationFrame(gameLoop);
+                
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        } else {
+          // If it was paused before, just keep it paused
+          isPausedRef.current = true;
+          setIsPaused(true);
+        }
+      }
+    }
+  }, [showControlsHelp, gameState, renderGame, gameLoop]);
+  
+  // Handle key or touch to dismiss controls help
+  const handleDismissControlsHelp = useCallback((e?: React.MouseEvent | React.TouchEvent | KeyboardEvent) => {
+    if (showControlsHelp) {
+      // Prevent event from propagating to avoid triggering game actions
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      
+      // Hide the controls help
+      setShowControlsHelp(false);
+      
+      // Handle game state correctly:
+      // - For 'ready' state: Always keep it unpaused to allow paddle movement
+      // - For 'playing' state: Show countdown then restore previous pause state
+      if (gameState === 'ready') {
+        // In ready state, ensure the game remains unpausable to allow paddle movement
+        isPausedRef.current = false;
+        setIsPaused(false);
+      } else if (gameState === 'playing') {
+        // For playing state, start the countdown if it wasn't paused before
+        if (!wasGamePausedBeforeHelp.current) {
+          // Start countdown
+          setCountdownValue(2);
+          setShowCountdown(true);
+          
+          // Clear any existing countdown
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
+          
+          // Start new countdown
+          countdownTimerRef.current = setInterval(() => {
+            setCountdownValue(prev => {
+              if (prev <= 1) {
+                // When countdown reaches 0, clear interval and unpause game
+                if (countdownTimerRef.current) {
+                  clearInterval(countdownTimerRef.current);
+                  countdownTimerRef.current = null;
+                }
+                setShowCountdown(false);
+                
+                // Unpause the game
+                isPausedRef.current = false;
+                setIsPaused(false);
+                
+                // Force restart animation frame
+                if (animationRef.current) {
+                  cancelAnimationFrame(animationRef.current);
+                  animationRef.current = undefined;
+                }
+                renderGame(); // Force an immediate render
+                animationRef.current = requestAnimationFrame(gameLoop);
+                
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        } else {
+          // If it was paused before, just keep it paused
+          isPausedRef.current = true;
+          setIsPaused(true);
+        }
+      }
+    }
+  }, [showControlsHelp, gameState, renderGame, gameLoop]);
+  
+  // Clean up countdown timer on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+      }
+    };
+  }, []);
+  
+  // Add keyboard listener for dismissing help
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (showControlsHelp) {
+        handleDismissControlsHelp(e);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [showControlsHelp, handleDismissControlsHelp]);
 
   const togglePause = useCallback(() => {
     if (gameStateRef.current === 'playing') {
@@ -1255,6 +1423,12 @@ const Game = () => {
   }, [startGame, gameLoop, renderGame]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // If control help is open, only allow closing it
+    if (showControlsHelp) {
+      handleDismissControlsHelp(e);
+      return;
+    }
+    
     // Special handling for menu keys that always work
     if (CONTROLS.menuClose.includes(e.key)) {
       e.preventDefault();
@@ -1298,7 +1472,7 @@ const Game = () => {
     } else {
       keysRef.current[e.code] = true;
     }
-  }, [showMenu, handleMenuOpen, handleMenuClose, togglePause, gameState, startGame]);
+  }, [showMenu, handleMenuOpen, handleMenuClose, togglePause, gameState, startGame, showControlsHelp, handleDismissControlsHelp]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (!(CONTROLS.pause.includes(e.key) || CONTROLS.pause.includes(e.code))) {
@@ -1651,8 +1825,15 @@ const Game = () => {
     }
   }, 100);
 
-  // Add touch control handlers
+  // Add tracking for double-click/double-tap
+  const lastClickTimeRef = useRef<number>(0);
+  const DOUBLE_CLICK_THRESHOLD = 300; // milliseconds between clicks to count as double-click
+  
+  // Update touch handler to implement double-tap for launching and dragging for positioning
   const handleTouchStart = useCallback((e: TouchEvent) => {
+    // If control help is open, ignore touch events
+    if (showControlsHelp) return;
+    
     if (isPausedRef.current || showMenu) return;
     
     e.preventDefault();
@@ -1663,36 +1844,85 @@ const Game = () => {
     const canvasRect = canvas.getBoundingClientRect();
     const touchX = touch.clientX - canvasRect.left;
     
-    // If game is in ready state, launch the ball on any touch
-    if (gameStateRef.current === 'ready') {
-      startGame();
-      return;
-    }
+    const now = Date.now();
     
-    // Only proceed with paddle controls if game is playing
-    if (gameStateRef.current !== 'playing') return;
-    
-    // Check if touch is directly on the paddle for dragging
+    // Check if paddle can be dragged (in both ready and playing states)
     const currentPaddle = paddleRef.current;
     const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
     const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
     const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
     const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
     
-    if (touchX >= paddleLeft && touchX <= paddleRight && 
-        touch.clientY - canvasRect.top >= paddleTop && 
-        touch.clientY - canvasRect.top <= paddleBottom) {
-      // Dragging the paddle
+    // Check if touch is on the paddle for dragging
+    const isTouchOnPaddle = (
+      touchX >= paddleLeft && 
+      touchX <= paddleRight && 
+      touch.clientY - canvasRect.top >= paddleTop && 
+      touch.clientY - canvasRect.top <= paddleBottom
+    );
+    
+    // Handle double tap to launch ball
+    if (gameStateRef.current === 'ready' && now - lastClickTimeRef.current < DOUBLE_CLICK_THRESHOLD) {
+      startGame();
+      lastClickTimeRef.current = 0; // Reset after launch
+      return;
+    }
+    
+    // Update last click time for double-tap detection
+    lastClickTimeRef.current = now;
+    
+    // Allow dragging when in ready state or if touching the paddle
+    if (gameStateRef.current === 'ready' || isTouchOnPaddle) {
       isDraggingRef.current = true;
       lastTouchXRef.current = touchX;
-    } else {
-      // Tap left/right to move
+    } else if (gameStateRef.current === 'playing') {
+      // In playing state, use tap left/right to move if not on paddle
       touchActiveRef.current = true;
       touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
     }
-  }, [showMenu, startGame]);
+  }, [showMenu, startGame, showControlsHelp]);
+  
+  // Update mouse handler to implement double-click for launching and dragging for positioning
+  const handleMouseDown = useCallback((e: MouseEvent) => {
+    // If control help is open, ignore mouse events
+    if (showControlsHelp) return;
+    
+    if (isPausedRef.current || showMenu) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const now = Date.now();
+    const canvasRect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - canvasRect.left;
+    const mouseY = e.clientY - canvasRect.top;
+    
+    // Handle double click to launch ball
+    if (gameStateRef.current === 'ready' && now - lastClickTimeRef.current < DOUBLE_CLICK_THRESHOLD) {
+      startGame();
+      lastClickTimeRef.current = 0; // Reset after launch
+      return;
+    }
+    
+    // Update last click time for double-click detection
+    lastClickTimeRef.current = now;
+    
+    // Allow paddle positioning in ready state via dragging
+    if (gameStateRef.current === 'ready') {
+      const scaleFactor = canvas.width / canvas.clientWidth;
+      setPaddle(prev => {
+        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
+          (mouseX * scaleFactor) - (prev.width / 2)));
+        return { ...prev, x: newX };
+      });
+    }
+  }, [showMenu, startGame, showControlsHelp]);
 
+  // Add touch control handlers
   const handleTouchMove = useCallback((e: TouchEvent) => {
+    // If control help is open, ignore touch events
+    if (showControlsHelp) return;
+    
     if (isPausedRef.current || showMenu) return;
     
     e.preventDefault();
@@ -1722,7 +1952,7 @@ const Game = () => {
       touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
       touchActiveRef.current = true;
     }
-  }, [showMenu]);
+  }, [showMenu, showControlsHelp]);
 
   const handleTouchEnd = useCallback((e: TouchEvent) => {
     e.preventDefault();
@@ -1732,19 +1962,10 @@ const Game = () => {
   }, []);
 
   // Add mouse controls for desktop users
-  const handleMouseDown = useCallback((e: MouseEvent) => {
-    if (isPausedRef.current || showMenu) return;
-    
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    // Launch the ball if in ready state
-    if (gameStateRef.current === 'ready') {
-      startGame();
-    }
-  }, [showMenu, startGame]);
-
   const handleMouseMove = useCallback((e: MouseEvent) => {
+    // If control help is open, ignore mouse events
+    if (showControlsHelp) return;
+    
     if (isPausedRef.current || showMenu) return;
     if (gameStateRef.current !== 'ready' && gameStateRef.current !== 'playing') return;
     
@@ -1763,7 +1984,7 @@ const Game = () => {
         return { ...prev, x: newX };
       });
     }
-  }, [showMenu]);
+  }, [showMenu, showControlsHelp]);
 
   // Add mouse event listeners
   useEffect(() => {
@@ -1791,166 +2012,284 @@ const Game = () => {
 
   // Add a special handler for the touch controls hint to allow starting the game
   const handleHintTouchStart = useCallback((e: React.TouchEvent) => {
-    if (gameState === 'ready') {
+    // If control help is open, do not trigger game actions
+    if (showControlsHelp) {
       e.preventDefault();
       e.stopPropagation();
-      startGame();
+      return;
     }
-  }, [gameState, startGame]);
+    
+    // Prevent any action on single tap of hint - require double-tap
+    e.preventDefault();
+    e.stopPropagation();
+  }, [showControlsHelp]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
-      {/* Header Bar */}
-      <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} />
+      {/* Game UI Container with relative positioning */}
+      <div className="flex flex-col w-full relative">
+        {/* Header Bar */}
+        <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} />
 
-      {/* Pause Indicator - only show when gameplay is paused but menu is not open */}
-      {isPaused && gameState === 'playing' && !showMenu && (
-        <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
-          <div className="bg-black/50 p-4 rounded-lg text-white flex flex-col items-center text-2xl font-bold animate-pulse">
-            <span className="block text-center">PAUSED</span>
-            <div className="text-sm mt-2 text-center">Press SPACE to resume</div>
-          </div>
+        {/* Controls Help Button - Better responsive positioning */}
+        <div className="absolute right-4 z-40" style={{ 
+          top: isMobile ? '5.2rem' : '6.6rem'
+        }}>
+          <Button
+            onClick={toggleControlsHelp}
+            variant="ghost"
+            size="icon"
+            className="bg-gray-800/70 text-white hover:bg-gray-700/80 shadow-lg"
+            aria-label="Controls Help"
+          >
+            <HelpCircle size={isMobile ? 18 : 20} />
+          </Button>
         </div>
-      )}
 
-      {/* Game Container */}
-      <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative">
-        <div
-          className={`relative w-full mx-auto ${isMobile ? '' : 'max-w-[800px] aspect-[4/3]'}`}
-          style={isMobile ? { height: '80vh', maxWidth: '100vw', aspectRatio: '4/3' } : {}}
-        >
-          {/* Game Grid Container */}
-          <div className="absolute inset-0 grid" style={{
-            gridTemplateColumns: `repeat(${GAME_SETTINGS.canvas.width / 80}, 1fr)`,
-            gridTemplateRows: `repeat(${GAME_SETTINGS.canvas.height / 25}, 1fr)`,
-          }}>
-            {/* Particle Effects */}
-            {particleEffects.map(effect => (
-              <ParticleEffect
-                key={effect.id}
-                x={effect.x}
-                y={effect.y}
-                color={effect.color}
-                count={effect.glow ? 15 : 12}
-                size={effect.glow ? 5 : 4}
-                duration={effect.glow ? 1500 : 1200}
-                intensity={effect.glow ? 1.2 : 1}
-                glow={effect.glow}
-              />
-            ))}
-
-            {/* Floating Score Overlay */}
-            <div className="absolute inset-0 pointer-events-none z-40">
-              {floatingScores.map(fs => {
-                const { x, y } = gameToOverlayCoords(fs.x, fs.y);
-                const canvas = canvasRef.current;
-                if (!canvas) return null;
-                const scaleX = canvas.clientWidth / canvas.width;
-                return (
-                  <span
-                    key={fs.id}
-                    className="absolute select-none text-yellow-400 font-bold"
-                    style={{
-                      left: x,
-                      top: y,
-                      fontSize: `${Math.min(20 * scaleX, 20)}px`,
-                      opacity: 0.9,
-                      animation: 'floatScore 1s ease-out forwards',
-                      position: 'absolute',
-                      pointerEvents: 'none',
-                      willChange: 'transform, opacity'
-                    }}
-                    role="status"
-                    aria-live="polite"
-                  >
-                    +{fs.value}
-                  </span>
-                );
-              })}
-              <style>{`
-                @keyframes floatScore {
-                  0% { opacity: 0.9; transform: translateY(0); }
-                  80% { opacity: 1; }
-                  100% { opacity: 0; transform: translateY(-40px); }
-                }
-              `}</style>
+        {/* Pause Indicator - only show when gameplay is paused but menu is not open */}
+        {isPaused && gameState === 'playing' && !showMenu && !showControlsHelp && !showCountdown && (
+          <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+            <div className="bg-black/50 p-4 rounded-lg text-white flex flex-col items-center text-2xl font-bold animate-pulse">
+              <span className="block text-center">PAUSED</span>
+              <div className="text-sm mt-2 text-center">Press SPACE to resume</div>
             </div>
+          </div>
+        )}
+        
+        {/* Countdown overlay - shown after closing help menu */}
+        {showCountdown && gameState === 'playing' && (
+          <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+            <div className="bg-black/50 p-8 rounded-lg text-white flex flex-col items-center justify-center">
+              <span className="text-5xl font-bold animate-pulse">{countdownValue}</span>
+              <span className="text-base mt-2">Game resumes in...</span>
+            </div>
+          </div>
+        )}
 
-            {/* Canvas */}
-            <canvas
-              ref={canvasRef}
-              width={GAME_SETTINGS.canvas.width}
-              height={GAME_SETTINGS.canvas.height}
-              className="w-full h-full border-4 border-white/20 rounded-lg shadow-2xl bg-gray-900 select-none"
-              style={{
-                touchAction: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                MozUserSelect: 'none',
-                msUserSelect: 'none',
-                gridColumn: '1 / -1',
-                gridRow: '1 / -1'
-              }}
-            />
-            
-            {/* Touch Controls Hint */}
-            {showTouchControls && touchHintVisible && (gameState === 'ready' || gameState === 'playing') && !showMenu && !['won', 'levelFailed'].includes(gameState) && (
-              <div 
-                className="absolute bottom-24 md:bottom-32 left-0 right-0 flex justify-center items-center z-50"
-                onTouchStart={gameState === 'ready' ? handleHintTouchStart : undefined}
-              >
-                <div className={`bg-black/70 p-3 rounded-xl text-white text-center transition-opacity duration-500 ${gameState === 'playing' ? 'opacity-70 pointer-events-none' : 'opacity-90'} animate-fadeIn`}>
-                  <p className="text-base font-bold mb-2">Touch Controls</p>
-                  <div className="flex justify-center gap-4 mb-1">
-                    <div className="flex flex-col items-center">
-                      <img src={tap} alt="Tap" className="w-10 h-10 mb-1 animate-pulse" />
-                      <span className="text-xs">Tap sides to move</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <img src={drag} alt="Drag" className="w-10 h-10 mb-1 animate-bounce" />
-                      <span className="text-xs">Drag paddle</span>
-                    </div>
-                  </div>
-                  {gameState === 'ready' && (
-                    <p className="text-xs mt-1 animate-pulse">Tap anywhere to launch ball</p>
-                  )}
-                </div>
+        {/* Game Container */}
+        <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative">
+          <div
+            className={`relative w-full mx-auto ${isMobile ? '' : 'max-w-[800px] aspect-[4/3]'}`}
+            style={isMobile ? { height: '80vh', maxWidth: '100vw', aspectRatio: '4/3' } : {}}
+          >
+            {/* Game Grid Container */}
+            <div className="absolute inset-0 grid" style={{
+              gridTemplateColumns: `repeat(${GAME_SETTINGS.canvas.width / 80}, 1fr)`,
+              gridTemplateRows: `repeat(${GAME_SETTINGS.canvas.height / 25}, 1fr)`,
+            }}>
+              {/* Particle Effects */}
+              {particleEffects.map(effect => (
+                <ParticleEffect
+                  key={effect.id}
+                  x={effect.x}
+                  y={effect.y}
+                  color={effect.color}
+                  count={effect.glow ? 15 : 12}
+                  size={effect.glow ? 5 : 4}
+                  duration={effect.glow ? 1500 : 1200}
+                  intensity={effect.glow ? 1.2 : 1}
+                  glow={effect.glow}
+                />
+              ))}
+
+              {/* Floating Score Overlay */}
+              <div className="absolute inset-0 pointer-events-none z-40">
+                {floatingScores.map(fs => {
+                  const { x, y } = gameToOverlayCoords(fs.x, fs.y);
+                  const canvas = canvasRef.current;
+                  if (!canvas) return null;
+                  const scaleX = canvas.clientWidth / canvas.width;
+                  return (
+                    <span
+                      key={fs.id}
+                      className="absolute select-none text-yellow-400 font-bold"
+                      style={{
+                        left: x,
+                        top: y,
+                        fontSize: `${Math.min(20 * scaleX, 20)}px`,
+                        opacity: 0.9,
+                        animation: 'floatScore 1s ease-out forwards',
+                        position: 'absolute',
+                        pointerEvents: 'none',
+                        willChange: 'transform, opacity'
+                      }}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      +{fs.value}
+                    </span>
+                  );
+                })}
                 <style>{`
-                  @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(20px); }
-                    to { opacity: 1; transform: translateY(0); }
-                  }
-                  .animate-fadeIn {
-                    animation: fadeIn 0.5s ease-out;
+                  @keyframes floatScore {
+                    0% { opacity: 0.9; transform: translateY(0); }
+                    80% { opacity: 1; }
+                    100% { opacity: 0; transform: translateY(-40px); }
                   }
                 `}</style>
               </div>
-            )}
-            
-            {/* Keyboard Controls Hint */}
-            {showKeyboardControls && keyboardHintVisible && (gameState === 'ready' || gameState === 'playing') && !showMenu && !['won', 'levelFailed'].includes(gameState) && (
-              <div className="absolute top-24 left-0 right-0 flex justify-center items-center pointer-events-none z-50">
-                <div className={`bg-black/70 p-3 rounded-xl text-white text-center transition-opacity duration-500 ${gameState === 'playing' ? 'opacity-70' : 'opacity-90'} animate-fadeIn`}>
-                  <p className="text-base font-bold mb-2">Keyboard Controls</p>
-                  <div className="flex justify-center gap-6 mb-1">
-                    <div className="flex flex-col items-center">
-                      <div className="flex gap-1 mb-1">
-                        <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">←</div>
-                        <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">→</div>
+
+              {/* Canvas */}
+              <canvas
+                ref={canvasRef}
+                width={GAME_SETTINGS.canvas.width}
+                height={GAME_SETTINGS.canvas.height}
+                className="w-full h-full border-4 border-white/20 rounded-lg shadow-2xl bg-gray-900 select-none"
+                style={{
+                  touchAction: 'none',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
+                  MozUserSelect: 'none',
+                  msUserSelect: 'none',
+                  gridColumn: '1 / -1',
+                  gridRow: '1 / -1'
+                }}
+              />
+              
+              {/* Initial Controls Hints - Only show on level 1 and first time */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
+                {/* Touch Controls Hint */}
+                {showTouchControls && touchHintVisible && (gameState === 'ready') && !showMenu && !showControlsHelp && !['won', 'levelFailed'].includes(gameState) && level === 1 && !hintsShownBefore && (
+                  <div 
+                    className="pointer-events-auto cursor-pointer"
+                    onTouchStart={handleHintTouchStart}
+                  >
+                    <div className="bg-black/70 p-3 rounded-xl text-white text-center transition-opacity duration-300 animate-fadeIn">
+                      <p className="text-base font-bold mb-2">Touch Controls</p>
+                      <div className="flex justify-center gap-4 mb-1">
+                        <div className="flex flex-col items-center">
+                          <img src={drag} alt="Drag" className="w-10 h-10 mb-1 animate-bounce" />
+                          <span className="text-xs">Drag paddle to position</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <img src={tap} alt="Tap" className="w-10 h-10 mb-1 animate-pulse" />
+                          <span className="text-xs">Double-tap to launch</span>
+                        </div>
                       </div>
-                      <span className="text-xs">Move paddle</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center mb-1">↑</div>
-                      <span className="text-xs">Launch ball</span>
+                      <p className="text-xs mt-1 animate-pulse">Position paddle first, then double-tap to start</p>
                     </div>
                   </div>
-                  {gameState === 'ready' && (
-                    <p className="text-xs mt-2 animate-pulse">Position paddle and press ↑ to start</p>
-                  )}
-                </div>
+                )}
+                
+                {/* Keyboard Controls Hint */}
+                {showKeyboardControls && keyboardHintVisible && (gameState === 'ready') && !showMenu && !showControlsHelp && !['won', 'levelFailed'].includes(gameState) && level === 1 && !hintsShownBefore && (
+                  <div className="pointer-events-none">
+                    <div className="bg-black/70 p-3 rounded-xl text-white text-center animate-fadeIn">
+                      <p className="text-base font-bold mb-2">Keyboard Controls</p>
+                      <div className="flex justify-center gap-6 mb-1">
+                        <div className="flex flex-col items-center">
+                          <div className="flex gap-1 mb-1">
+                            <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">←</div>
+                            <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center">→</div>
+                          </div>
+                          <span className="text-xs">Position paddle</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <div className="w-8 h-8 bg-gray-700 rounded flex items-center justify-center mb-1">↑</div>
+                          <span className="text-xs">Launch ball</span>
+                        </div>
+                      </div>
+                      <p className="text-xs mt-2 animate-pulse">Position paddle with arrows, press ↑ to start</p>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+              
+              {/* Controls Help Modal - Shown when help button is clicked */}
+              {showControlsHelp && (
+                <div 
+                  className="absolute inset-0 flex items-center justify-center z-50 bg-black/70"
+                  onClick={handleDismissControlsHelp}
+                  onTouchStart={handleDismissControlsHelp}
+                >
+                  <div className="bg-gray-800 p-5 rounded-xl text-white max-w-md mx-auto" onClick={e => e.stopPropagation()}>
+                    <h2 className="text-xl font-bold mb-4 text-center">Controls</h2>
+                    
+                    {/* Show appropriate controls based on device */}
+                    {hasTouchSupportRef.current ? (
+                      <div className="space-y-5">
+                        <div className="flex items-center gap-4">
+                          <img src={drag} alt="Drag" className="w-12 h-12" />
+                          <div>
+                            <h3 className="font-bold">Drag Paddle</h3>
+                            <p className="text-sm text-gray-300">Touch and drag the paddle to position it</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          <img src={tap} alt="Tap" className="w-12 h-12" />
+                          <div>
+                            <h3 className="font-bold">Double-Tap</h3>
+                            <p className="text-sm text-gray-300">Double tap to launch the ball from the ready position</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          <img src={tap} alt="Tap" className="w-12 h-12" />
+                          <div>
+                            <h3 className="font-bold">Tap Left/Right</h3>
+                            <p className="text-sm text-gray-300">During play, tap sides of screen to move paddle</p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-4">
+                          <div className="flex gap-2">
+                            <div className="w-10 h-10 bg-gray-700 rounded flex items-center justify-center">←</div>
+                            <div className="w-10 h-10 bg-gray-700 rounded flex items-center justify-center">→</div>
+                          </div>
+                          <div>
+                            <h3 className="font-bold">Position Paddle</h3>
+                            <p className="text-sm text-gray-300">Use left and right arrow keys to position paddle</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-gray-700 rounded flex items-center justify-center">↑</div>
+                          <div>
+                            <h3 className="font-bold">Launch Ball</h3>
+                            <p className="text-sm text-gray-300">Press up arrow to launch ball from ready position</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-gray-700 rounded flex items-center justify-center">
+                            <span className="text-sm">Space</span>
+                          </div>
+                          <div>
+                            <h3 className="font-bold">Pause Game</h3>
+                            <p className="text-sm text-gray-300">Press space bar to pause/resume game</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-gray-700 rounded flex items-center justify-center">
+                            <span className="text-xs">Mouse</span>
+                          </div>
+                          <div>
+                            <h3 className="font-bold">Mouse Controls</h3>
+                            <p className="text-sm text-gray-300">Drag to position paddle, double-click to launch</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <p className="mt-6 text-center text-sm text-yellow-300">Press any key or tap screen to resume</p>
+                  </div>
+                </div>
+              )}
+              
+              <style>{`
+                @keyframes fadeIn {
+                  from { opacity: 0; transform: translateY(20px); }
+                  to { opacity: 1; transform: translateY(0); }
+                }
+                .animate-fadeIn {
+                  animation: fadeIn 0.5s ease-out;
+                }
+              `}</style>
+            </div>
           </div>
         </div>
       </div>
