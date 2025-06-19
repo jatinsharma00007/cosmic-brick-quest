@@ -1836,6 +1836,11 @@ const Game = () => {
   // Add control preferences
   const [touchControlPreference, setTouchControlPreference] = useState<'tap' | 'drag'>('drag');
   
+  // Add tracking for touch position to distinguish between taps and drags
+  const touchStartPosRef = useRef<{x: number, y: number} | null>(null);
+  const isDragDetectedRef = useRef(false);
+  const TAP_THRESHOLD = 10; // pixels of movement allowed before considering it a drag
+  
   // Initialize control preference from localStorage
   useEffect(() => {
     const savedPreference = localStorage.getItem('touchControlPreference');
@@ -1866,6 +1871,10 @@ const Game = () => {
     const touchX = touch.clientX - canvasRect.left;
     const touchY = touch.clientY - canvasRect.top;
     
+    // Store the initial touch position to detect if this becomes a drag
+    touchStartPosRef.current = { x: touchX, y: touchY };
+    isDragDetectedRef.current = false;
+    
     // Check if paddle can be dragged (in both ready and playing states)
     const currentPaddle = paddleRef.current;
     const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
@@ -1881,38 +1890,44 @@ const Game = () => {
       touchY <= paddleBottom
     );
     
-    // Track start of drag for preventing accidental ball launch
-    if (isTouchOnPaddle) {
-      isDraggingRef.current = true;
-      lastTouchXRef.current = touchX;
-      return; // Return early to prevent ball launch
-    }
-    
-    // Simple tap to launch ball - but only if not touching paddle and in ready state
-    if (gameStateRef.current === 'ready' && !isTouchOnPaddle) {
-      startGame();
-      return;
-    }
-    
-    // Apply different control methods based on user preference
+    // READY STATE: Allow launching the ball with tap and positioning with drag
     if (gameStateRef.current === 'ready') {
-      // In ready state, just allow positioning if using drag preference
-      if (touchControlPreference === 'drag') {
+      // For drag controls in ready state, allow dragging from anywhere
+      if (touchControlPreference === 'drag' || isTouchOnPaddle) {
         isDraggingRef.current = true;
         lastTouchXRef.current = touchX;
+        
+        // Immediately move paddle to touch position
+        const scaleFactor = canvas.width / canvas.clientWidth;
+        setPaddle(prev => {
+          const newX = Math.max(0, Math.min(canvas.width - prev.width, 
+            (touchX * scaleFactor) - (prev.width / 2)));
+          return { ...prev, x: newX };
+        });
+        
+        // Don't return early here - we'll decide on touchend if this was a tap or drag
       }
-    } else if (gameStateRef.current === 'playing') {
-      // In playing state, use the user's preferred control method
-      if (touchControlPreference === 'drag' && isTouchOnPaddle) {
-        // Drag control - only activate if touching paddle
+      
+      // We'll determine if this is a tap to launch the ball on touchend
+      // This prevents accidental launches when trying to drag
+    } 
+    // PLAYING STATE: Strictly enforce the selected control method
+    else if (gameStateRef.current === 'playing') {
+      if (touchControlPreference === 'drag') {
+        // DRAG PREFERENCE: Allow dragging from anywhere on screen
         isDraggingRef.current = true;
         lastTouchXRef.current = touchX;
+        
+        // Immediately move paddle to touch position
+        const scaleFactor = canvas.width / canvas.clientWidth;
+        setPaddle(prev => {
+          const newX = Math.max(0, Math.min(canvas.width - prev.width, 
+            (touchX * scaleFactor) - (prev.width / 2)));
+          return { ...prev, x: newX };
+        });
       } else if (touchControlPreference === 'tap') {
-        // Tap control - tap sides to move paddle
-        touchActiveRef.current = true;
-        touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
-      } else if (touchControlPreference === 'drag' && !isTouchOnPaddle) {
-        // Fallback to tap controls when using drag but not touching paddle
+        // TAP PREFERENCE: Only allow tapping sides to move paddle
+        // Ignore dragging attempts when tap is the preference
         touchActiveRef.current = true;
         touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
       }
@@ -1974,7 +1989,7 @@ const Game = () => {
       });
     }
   }, [showMenu, startGame, showControlsHelp]);
-
+  
   // Add touch control handlers
   const handleTouchMove = useCallback((e: TouchEvent) => {
     // If control help is open, ignore touch events completely
@@ -1992,21 +2007,35 @@ const Game = () => {
     
     const canvasRect = canvas.getBoundingClientRect();
     const touchX = touch.clientX - canvasRect.left;
+    const touchY = touch.clientY - canvasRect.top;
     
-    // Apply different touch control methods based on preference and state
-    if (isDraggingRef.current) {
-      // Move paddle based on touch movement
-      const deltaX = touchX - lastTouchXRef.current;
+    // Check if this touch has moved enough to be considered a drag
+    if (touchStartPosRef.current) {
+      const dx = touchX - touchStartPosRef.current.x;
+      const dy = touchY - touchStartPosRef.current.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
       
+      if (distance > TAP_THRESHOLD) {
+        isDragDetectedRef.current = true;
+      }
+    }
+    
+    // For drag controls, move paddle to exact horizontal touch position
+    if (isDraggingRef.current && (gameStateRef.current === 'ready' || 
+        (gameStateRef.current === 'playing' && touchControlPreference === 'drag'))) {
+      
+      // Move paddle directly to touch position (horizontally centered on touch)
+      const scaleFactor = canvas.width / canvas.clientWidth;
       setPaddle(prev => {
-        const scaleFactor = canvas.width / canvas.clientWidth;
-        const newX = Math.max(0, Math.min(canvas.width - prev.width, prev.x + deltaX * scaleFactor));
+        const newX = Math.max(0, Math.min(canvas.width - prev.width, 
+          (touchX * scaleFactor) - (prev.width / 2)));
         return { ...prev, x: newX };
       });
       
       lastTouchXRef.current = touchX;
-    } else if (touchControlPreference === 'tap' || !isDraggingRef.current) {
-      // If using tap controls or not currently dragging, update direction
+    }
+    // For tap controls during gameplay, update direction based on which half of screen is touched
+    else if (gameStateRef.current === 'playing' && touchControlPreference === 'tap') {
       touchDirectionRef.current = touchX < canvas.clientWidth / 2 ? 'left' : 'right';
       touchActiveRef.current = true;
     }
@@ -2014,10 +2043,43 @@ const Game = () => {
 
   const handleTouchEnd = useCallback((e: TouchEvent) => {
     e.preventDefault();
+    
+    // Check if this was a tap (not a drag) and we're in ready state
+    if (gameStateRef.current === 'ready' && !isDragDetectedRef.current) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      // Get the current paddle position to check if touch was on paddle
+      const currentPaddle = paddleRef.current;
+      const paddleLeft = currentPaddle.x * (canvas.clientWidth / canvas.width);
+      const paddleRight = (currentPaddle.x + currentPaddle.width) * (canvas.clientWidth / canvas.width);
+      const paddleTop = currentPaddle.y * (canvas.clientHeight / canvas.height);
+      const paddleBottom = (currentPaddle.y + currentPaddle.height) * (canvas.clientHeight / canvas.height);
+      
+      // Only launch if the touch was not on the paddle
+      if (touchStartPosRef.current) {
+        const { x, y } = touchStartPosRef.current;
+        const isTouchOnPaddle = (
+          x >= paddleLeft && 
+          x <= paddleRight && 
+          y >= paddleTop && 
+          y <= paddleBottom
+        );
+        
+        if (!isTouchOnPaddle) {
+          // This was a tap (not a drag) and not on the paddle, so launch the ball
+          startGame();
+        }
+      }
+    }
+    
+    // Reset touch tracking
     touchActiveRef.current = false;
     touchDirectionRef.current = null;
     isDraggingRef.current = false;
-  }, []);
+    touchStartPosRef.current = null;
+    isDragDetectedRef.current = false;
+  }, [gameStateRef, startGame]);
 
   // Add mouse controls for desktop users
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -2081,6 +2143,8 @@ const Game = () => {
     e.preventDefault();
     e.stopPropagation();
   }, [showControlsHelp]);
+
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
@@ -2227,20 +2291,20 @@ const Game = () => {
                         <div className="flex flex-col items-center">
                           <img src={drag} alt="Drag" className={`w-10 h-10 mb-1 ${touchControlPreference === 'drag' ? 'animate-bounce' : ''}`} />
                           <span className="text-xs">
-                            {touchControlPreference === 'drag' ? 'Drag paddle to position (primary)' : 'Drag paddle to position'}
+                            {touchControlPreference === 'drag' ? 'Drag to position precisely' : 'Drag to position'}
                           </span>
                         </div>
                         <div className="flex flex-col items-center">
                           <img src={tap} alt="Tap" className={`w-10 h-10 mb-1 ${touchControlPreference === 'tap' ? 'animate-pulse' : ''}`} />
                           <span className="text-xs">
-                            {touchControlPreference === 'tap' ? 'Tap sides to move (primary)' : 'Tap to launch'}
+                            {touchControlPreference === 'tap' ? 'Tap sides to move continuously' : 'Tap to launch'}
                           </span>
                         </div>
                       </div>
                       <p className="text-xs mt-1 animate-pulse">
                         {touchControlPreference === 'drag' 
-                          ? 'Position paddle first, then tap to launch' 
-                          : 'Tap to launch, then tap sides to move'}
+                          ? 'Drag anywhere to position paddle precisely, then tap to launch' 
+                          : 'Tap to launch, then tap sides to move paddle continuously'}
                       </p>
                     </div>
                   </div>
@@ -2317,19 +2381,22 @@ const Game = () => {
                           </div>
                           <p className="text-xs text-gray-300 mt-2">
                             {touchControlPreference === 'drag' 
-                              ? 'Drag your finger to position the paddle' 
-                              : 'Tap left or right to move the paddle'}
+                              ? 'Drag anywhere on screen to position paddle exactly where you touch (precise control)' 
+                              : 'Tap left or right side of screen to move paddle in that direction (continuous movement)'}
+                          </p>
+                          <p className="text-xs text-gray-300 mt-1 italic">
+                            Note: In the ready state, both controls are available to position the paddle
                           </p>
                         </div>
                         
                         <div className="flex items-center gap-4">
                           <img src={drag} alt="Drag" className="w-12 h-12" />
                           <div>
-                            <h3 className="font-bold">Drag Paddle</h3>
+                            <h3 className="font-bold">Drag Controls</h3>
                             <p className="text-sm text-gray-300">
                               {touchControlPreference === 'drag' 
-                                ? 'Touch and drag the paddle to position it (primary control)' 
-                                : 'Touch and drag the paddle to position it (available in ready state)'}
+                                ? 'Touch and drag anywhere on screen to position paddle exactly under your finger (precise positioning)' 
+                                : 'Touch and drag to position paddle (only available before launching the ball)'}
                             </p>
                           </div>
                         </div>
@@ -2337,11 +2404,11 @@ const Game = () => {
                         <div className="flex items-center gap-4">
                           <img src={tap} alt="Tap" className="w-12 h-12" />
                           <div>
-                            <h3 className="font-bold">Tap Left/Right</h3>
+                            <h3 className="font-bold">Tap Controls</h3>
                             <p className="text-sm text-gray-300">
                               {touchControlPreference === 'tap' 
-                                ? 'Tap left or right side of screen to move paddle (primary control)' 
-                                : 'Tap left or right side of screen to move paddle (when not touching paddle)'}
+                                ? 'Tap left or right side of screen to move paddle continuously in that direction' 
+                                : 'Tap left or right side of screen to move paddle (not available during gameplay)'}
                             </p>
                           </div>
                         </div>
