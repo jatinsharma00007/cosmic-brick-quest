@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Lock, Star } from 'lucide-react';
@@ -17,6 +17,10 @@ const LevelSelect = () => {
   const [progress, setProgress] = useState<Record<string, any>>({});
   const [totalStars, setTotalStars] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Add state for touch feedback
+  const [touchedLevel, setTouchedLevel] = useState<number | null>(null);
+  // Add flag to track if navigation is in progress
+  const isNavigatingRef = useRef(false);
   
   // Apply game interaction optimizations with scroll allowed for level selection
   useGameInteraction(containerRef, {
@@ -50,12 +54,60 @@ const LevelSelect = () => {
     setLevelData(initialData);
   };
 
-  const handleLevelClick = (level: number) => {
+  // Enhanced level selection handler with debounce to prevent double navigation
+  const handleLevelClick = useCallback((level: number, event?: React.MouseEvent | React.TouchEvent) => {
+    // Prevent default behavior to avoid any browser-specific issues
+    if (event) {
+      event.preventDefault();
+    }
+    
+    // Check if we're already navigating to prevent double navigation
+    if (isNavigatingRef.current) {
+      return;
+    }
+    
     const levelKey = `level_${level}`;
     if (levelData[levelKey]?.unlocked) {
-      navigate(`/game?level=${level}`);
+      // Set navigating flag to true to prevent duplicate navigation
+      isNavigatingRef.current = true;
+      
+      // Navigate with a slight delay to allow touch feedback to show
+      setTimeout(() => {
+        navigate(`/game?level=${level}`);
+        // Reset the flag after a longer timeout to ensure navigation completes
+        setTimeout(() => {
+          isNavigatingRef.current = false;
+        }, 500);
+      }, 100);
     }
-  };
+  }, [levelData, navigate]);
+
+  // Touch event handlers
+  const handleTouchStart = useCallback((level: number, e: React.TouchEvent) => {
+    // Prevent default to avoid any potential double-firing with click events
+    e.stopPropagation();
+    
+    const levelKey = `level_${level}`;
+    if (levelData[levelKey]?.unlocked) {
+      setTouchedLevel(level);
+    }
+  }, [levelData]);
+
+  const handleTouchEnd = useCallback((level: number, e: React.TouchEvent) => {
+    // Prevent default to avoid any potential double-firing with click events
+    e.stopPropagation();
+    
+    setTouchedLevel(null);
+    // On touch devices, handle navigation in the touch handler
+    // and prevent the click handler from firing
+    if ('ontouchstart' in window) {
+      handleLevelClick(level, e);
+    }
+  }, [handleLevelClick]);
+
+  const handleTouchCancel = useCallback(() => {
+    setTouchedLevel(null);
+  }, []);
 
   const renderStars = (stars: number) => (
     <div className="flex justify-center mt-1">
@@ -97,19 +149,28 @@ const LevelSelect = () => {
             const levelKey = `level_${level}`;
             const data = levelData[levelKey];
             const isUnlocked = data?.unlocked || false;
+            const isTouched = touchedLevel === level;
 
             return (
-              <div
+              <button
                 key={level}
-                onClick={() => handleLevelClick(level)}
+                onClick={(e) => 'ontouchstart' in window ? null : handleLevelClick(level, e)}
+                onTouchStart={(e) => handleTouchStart(level, e)}
+                onTouchEnd={(e) => handleTouchEnd(level, e)}
+                onTouchCancel={handleTouchCancel}
+                disabled={!isUnlocked}
+                aria-label={`Level ${level}${!isUnlocked ? ' (locked)' : ''}`}
                 className={`
                   w-full aspect-square rounded-lg flex flex-col items-center justify-center
                   text-white font-bold text-xs xs:text-sm sm:text-base md:text-lg
-                  cursor-pointer transition-all duration-200 transform hover:scale-110
+                  transition-all duration-200 transform
                   ${isUnlocked 
-                    ? 'bg-gradient-to-br from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 shadow-lg' 
+                    ? `bg-gradient-to-br from-blue-500 to-cyan-600 
+                       ${isTouched ? 'scale-95 from-blue-600 to-cyan-700' : 'hover:scale-110 hover:from-blue-600 hover:to-cyan-700'} 
+                       shadow-lg active:scale-95` 
                     : 'bg-gray-600 cursor-not-allowed opacity-50'
                   }
+                  focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-opacity-50
                 `}
               >
                 {!isUnlocked && (
@@ -124,7 +185,7 @@ const LevelSelect = () => {
                     </span>
                   )}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>

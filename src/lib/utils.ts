@@ -55,6 +55,9 @@ export function applyGameInteractionFix(
   const listeners: Array<[string, EventListener, HTMLElement | Document | Window]> = [];
   let metaTag: HTMLMetaElement | null = null;
   
+  // Check if we're on the level select page
+  const isLevelSelectPage = window.location.pathname.includes('level-select');
+  
   // Add event listener and track for cleanup
   const addListener = (
     eventName: string, 
@@ -73,8 +76,9 @@ export function applyGameInteractionFix(
     // Apply styles
     targetElement.style.userSelect = 'none';
     targetElement.style.webkitUserSelect = 'none';
-    targetElement.style.mozUserSelect = 'none';
-    targetElement.style.msUserSelect = 'none';
+    // Use type assertion for vendor-specific properties
+    (targetElement.style as any).MozUserSelect = 'none';
+    (targetElement.style as any).msUserSelect = 'none';
   }
   
   // Prevent context menu
@@ -91,17 +95,30 @@ export function applyGameInteractionFix(
       }
     };
     
-    // Prevent double-tap zoom
+    // Modified touchEndHandler to only prevent default for double-taps
+    // but allow normal tap behavior for buttons and links
+    let lastTapTime = 0;
     const touchEndHandler = (e: TouchEvent) => {
-      e.preventDefault();
-      // Allow clicks for game controls to work
-      if (e.target instanceof HTMLElement) {
-        if (e.target.tagName.toLowerCase() === 'button' || 
-           e.target.tagName.toLowerCase() === 'a' ||
-           e.target.role === 'button') {
-          e.target.click();
-        }
+      // Special handling for level select page - don't interfere with button clicks
+      if (isLevelSelectPage && e.target instanceof HTMLElement && 
+          (e.target.tagName.toLowerCase() === 'button' || 
+           e.target.closest('button') ||
+           e.target.role === 'button')) {
+        // Don't prevent default or do anything that might interfere with button clicks
+        return;
       }
+      
+      const now = Date.now();
+      const DOUBLE_TAP_DELAY = 300; // ms
+      
+      // Check if this is a double-tap (potential zoom trigger)
+      if (now - lastTapTime < DOUBLE_TAP_DELAY) {
+        // Only prevent default for double-taps to prevent zoom
+        e.preventDefault();
+      }
+      
+      // Store the tap time for double-tap detection
+      lastTapTime = now;
     };
     
     addListener('touchmove', touchMoveHandler as EventListener, targetElement);
@@ -141,24 +158,31 @@ export function applyGameInteractionFix(
       }
     };
     
-    // Apply overflow hidden to body when in fullscreen game mode
-    const originalBodyStyles = {
-      overflow: document.body.style.overflow,
-      position: document.body.style.position,
-      height: document.body.style.height
-    };
-    
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.height = '100%';
-    document.body.style.width = '100%';
+    // Don't apply fixed position to body when preventScroll is true but we're in the level select
+    // This allows scrolling in the level select page
+    if (!isLevelSelectPage) {
+      // Apply overflow hidden to body when in fullscreen game mode
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.height = '100%';
+      document.body.style.width = '100%';
+    }
     
     addListener('touchstart', touchStartHandler as EventListener, targetElement);
     addListener('touchmove', touchMoveScrollHandler as EventListener, targetElement);
     
-    // Prevent bounce scrolling in iOS
+    // Prevent bounce scrolling in iOS, but not on level select page
     const preventBounceScroll = (e: TouchEvent) => {
-      e.preventDefault();
+      // Don't prevent default on level select page or if the target is a button
+      const isButton = e.target instanceof HTMLElement && 
+        (e.target.tagName.toLowerCase() === 'button' || 
+         e.target.closest('button') ||
+         e.target.role === 'button' ||
+         e.target.tagName.toLowerCase() === 'a');
+      
+      if (!isLevelSelectPage && !isButton) {
+        e.preventDefault();
+      }
     };
     
     addListener('touchmove', preventBounceScroll as EventListener, document);
@@ -188,8 +212,9 @@ export function applyGameInteractionFix(
     if (preventSelection) {
       targetElement.style.userSelect = '';
       targetElement.style.webkitUserSelect = '';
-      targetElement.style.mozUserSelect = '';
-      targetElement.style.msUserSelect = '';
+      // Use type assertion for vendor-specific properties
+      (targetElement.style as any).MozUserSelect = '';
+      (targetElement.style as any).msUserSelect = '';
     }
   };
 }
