@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { Pause, Play, Home, Menu, Heart, X, RefreshCcw, HelpCircle } from 'lucide-react';
+import { Pause, Play, Home, Menu, Heart, X, RefreshCcw, HelpCircle, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import React from 'react';
 import { GAME_SETTINGS, SCORE_SETTINGS, CONTROLS, GAME_SIZES } from '../lib/config';
@@ -12,6 +12,7 @@ import useGameInteraction from '@/hooks/use-game-interaction';
 
 import drag from '/assets/drag.png';
 import tap from '/assets/tap.png';
+import { getLevelConfig, getNextLevel, isCrazyLevelUnlocked } from '@/lib/levelConfig';
 
 interface Brick {
   x: number;
@@ -185,10 +186,25 @@ const LevelCompleteModal = React.memo(({ level, score, lives, liveStars, navigat
   const data = saved ? JSON.parse(saved) : {};
   const levelData = data[`level_${level}`] || { score: 0 };
   const isNewHighScore = score >= (levelData.score || 0);
+  
+  // Check if a crazy level was unlocked
+  const nextLevel = getNextLevel(level);
+  const crazyLevelUnlocked = nextLevel?.isCrazyLevel && isCrazyLevelUnlocked(nextLevel.id);
+  
   return (
     <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
       <div className="bg-green-800 p-4 sm:p-8 rounded-xl text-white text-center space-y-3 sm:space-y-4 w-full max-w-[300px] sm:min-w-[300px]">
         <h2 className="text-2xl sm:text-3xl font-bold text-yellow-300">Level Complete!</h2>
+        
+        {/* Crazy Level Unlocked Notification */}
+        {crazyLevelUnlocked && (
+          <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-3 rounded-lg border-2 border-yellow-300 animate-pulse">
+            <div className="text-lg font-bold text-yellow-300 mb-1">🎉 CRAZY LEVEL UNLOCKED! 🎉</div>
+            <div className="text-sm">{nextLevel?.name}</div>
+            <div className="text-xs text-yellow-200 mt-1">Complete this bonus challenge!</div>
+          </div>
+        )}
+        
         <p className="text-lg sm:text-xl">
           {isNewHighScore ? (
             <>
@@ -207,8 +223,20 @@ const LevelCompleteModal = React.memo(({ level, score, lives, liveStars, navigat
         <p className="text-sm sm:text-base">Lives Remaining: {lives}</p>
         <p className="text-sm sm:text-base">Stars Earned: {'★'.repeat(liveStars)}</p>
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 sm:justify-center">
-          <Button onClick={() => navigate(`/game?level=${level + 1}`)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base" disabled={level >= 100}>
-            {level >= 100 ? 'Game Complete!' : 'Next Level'}
+          <Button 
+            onClick={() => {
+              const nextLevel = getNextLevel(level);
+              if (nextLevel) {
+                navigate(`/game?level=${nextLevel.id}`);
+              } else {
+                // If no next level, go to level select
+                quitToMenu();
+              }
+            }} 
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base" 
+            disabled={!getNextLevel(level)}
+          >
+            {getNextLevel(level) ? 'Next Level' : 'Game Complete!'}
           </Button>
           <Button onClick={quitToMenu} className='w-full sm:w-auto text-black text-sm sm:text-base' variant="outline">
             Level Select
@@ -1080,17 +1108,32 @@ const Game = () => {
   };
 
   const generateLevel = (levelNumber: number): Brick[] => {
+    const levelConfig = getLevelConfig(levelNumber);
+    if (levelConfig) {
+      // Use the structured level configuration
+      return levelConfig.bricks.map(brick => ({
+        x: brick.x,
+        y: brick.y,
+        width: brick.width,
+        height: brick.height,
+        color: brick.color,
+        destroyed: brick.destroyed,
+        hits: brick.hits,
+        maxHits: brick.maxHits,
+        type: brick.type,
+        material: brick.material
+      }));
+    }
+    // fallback to old random generation if not found
     const config = getDifficultyConfig(levelNumber);
     const newBricks: Brick[] = [];
     const materialTypes = Object.keys(SCORE_SETTINGS.materialBricks) as Array<keyof typeof SCORE_SETTINGS.materialBricks>;
-    
     const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
     const brickWidth = sizes.brickWidth;
     const brickHeight = sizes.brickHeight;
     const offsetTop = 80;
     const totalWidth = config.cols * brickWidth;
     const offsetLeft = (GAME_SETTINGS.canvas.width - totalWidth) / 2;
-
     for (let row = 0; row < config.rows; row++) {
       for (let col = 0; col < config.cols; col++) {
         if (Math.random() > config.emptyChance) {
@@ -1098,7 +1141,6 @@ const Game = () => {
           let maxHits = 1;
           let color = SCORE_SETTINGS.normalBrickColor;
           let material: keyof typeof SCORE_SETTINGS.materialBricks | undefined;
-
           const rand = Math.random();
           if (rand < 0.3) {
             brickType = 'material';
@@ -1107,7 +1149,6 @@ const Game = () => {
             material = randomMaterial;
             color = SCORE_SETTINGS.materialBricks[randomMaterial].color;
           }
-
           newBricks.push({
             x: offsetLeft + col * brickWidth,
             y: offsetTop + row * brickHeight,
@@ -1123,41 +1164,34 @@ const Game = () => {
         }
       }
     }
-
     return newBricks;
   };
 
   const initializeGame = useCallback((levelNumber?: number) => {
     if (isInitializedRef.current) return;
-
     const currentLevel = levelNumber || level;
-    const config = getDifficultyConfig(currentLevel);
+    const levelConfig = getLevelConfig(currentLevel);
     const newBricks = generateLevel(currentLevel);
-
     setScore(0);
     setLives(GAME_SETTINGS.lives);
     setGameState('ready');
-    // In ready state, we want the game loop to run so player can move paddle
     isPausedRef.current = false;
     setIsPaused(false);
     setBricksBroken(0);
-    
     // Reset touch control state
     touchActiveRef.current = false;
     touchDirectionRef.current = null;
     isDraggingRef.current = false;
     setTouchHintVisible(true);
     setKeyboardHintVisible(true);
-    
     // Reset keyboard state
     Object.keys(keysRef.current).forEach(key => {
       keysRef.current[key] = false;
     });
-    
     const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
-    const paddleWidth = sizes.paddleWidth;
+    // Use level-specific paddle width if available
+    const paddleWidth = levelConfig?.paddleWidth || sizes.paddleWidth;
     const paddleHeight = sizes.paddleHeight;
-
     // Determine paddle Y position based on device type
     let paddleY;
     if (window.innerWidth < 768) { // Mobile
@@ -1167,7 +1201,6 @@ const Game = () => {
     } else { // Desktop
       paddleY = GAME_SETTINGS.paddle.initialY;
     }
-
     const newPaddle = { 
       x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2, 
       y: paddleY, 
@@ -1175,19 +1208,17 @@ const Game = () => {
       height: paddleHeight 
     };
     setPaddle(newPaddle);
-
     const ballRadius = sizes.ballRadius;
     const newBall = {
       x: newPaddle.x + newPaddle.width / 2,
-      y: newPaddle.y - ballRadius - 2, // Position ball just above paddle
-      dx: 0,  // No horizontal movement
-      dy: 0,  // No vertical movement
+      y: newPaddle.y - ballRadius - 2,
+      dx: 0,
+      dy: 0,
       radius: ballRadius,
-      speed: 0,  // No speed
-      baseSpeed: GAME_SETTINGS.ball.baseSpeed
+      speed: 0,
+      baseSpeed: levelConfig?.ballSpeed || GAME_SETTINGS.ball.baseSpeed
     };
     setBall(newBall);
-    
     setBricks(newBricks);
     isInitializedRef.current = true;
   }, [level, isMobile]);

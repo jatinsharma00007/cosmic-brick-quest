@@ -75,6 +75,18 @@ export const SCORE_SETTINGS = {
             points: 50,
             effect: '0 0 15px rgba(180, 83, 9, 0.7)'
         },
+        iron: {
+            name: 'Iron',
+            color: '#6b7280',
+            points: 80,
+            effect: '0 0 15px rgba(107, 114, 128, 0.7)'
+        },
+        copper: {
+            name: 'Copper',
+            color: '#b87333',
+            points: 90,
+            effect: '0 0 15px rgba(184, 115, 51, 0.7)'
+        },
         emerald: {
             name: 'Emerald',
             color: '#22c55e',

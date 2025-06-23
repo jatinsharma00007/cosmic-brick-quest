@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Lock, Star } from 'lucide-react';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import useGameInteraction from '@/hooks/use-game-interaction';
+import { getUnlockedLevels, getLevelConfig } from '@/lib/levelConfig';
 
 interface LevelData {
   stars: number;
@@ -40,17 +41,19 @@ const LevelSelect = () => {
   const loadLevelData = () => {
     const saved = localStorage.getItem('brickBreakerProgress');
     const data = saved ? JSON.parse(saved) : {};
-    
+    // Get all unlocked levels from the new system
+    const unlockedLevels = getUnlockedLevels();
     // Initialize with level 1 unlocked
     const initialData: { [key: string]: LevelData } = {};
     for (let i = 1; i <= 100; i++) {
+      const levelConfig = getLevelConfig(i);
+      const isUnlocked = unlockedLevels.find(l => l.id === i)?.unlocked || i === 1;
       initialData[`level_${i}`] = {
         stars: data[`level_${i}`]?.stars || 0,
         score: data[`level_${i}`]?.score || 0,
-        unlocked: i === 1 || data[`level_${i}`]?.unlocked || false
+        unlocked: isUnlocked
       };
     }
-    
     setLevelData(initialData);
   };
 
@@ -148,8 +151,10 @@ const LevelSelect = () => {
             const level = i + 1;
             const levelKey = `level_${level}`;
             const data = levelData[levelKey];
+            const levelConfig = getLevelConfig(level);
             const isUnlocked = data?.unlocked || false;
             const isTouched = touchedLevel === level;
+            const isCrazyLevel = levelConfig?.isCrazyLevel || false;
 
             return (
               <button
@@ -163,11 +168,15 @@ const LevelSelect = () => {
                 className={`
                   w-full aspect-square rounded-lg flex flex-col items-center justify-center
                   text-white font-bold text-xs xs:text-sm sm:text-base md:text-lg
-                  transition-all duration-200 transform
+                  transition-all duration-200 transform relative
                   ${isUnlocked 
-                    ? `bg-gradient-to-br from-blue-500 to-cyan-600 
-                       ${isTouched ? 'scale-95 from-blue-600 to-cyan-700' : 'hover:scale-110 hover:from-blue-600 hover:to-cyan-700'} 
-                       shadow-lg active:scale-95` 
+                    ? isCrazyLevel
+                      ? `bg-gradient-to-br from-purple-500 to-pink-600 
+                         ${isTouched ? 'scale-95 from-purple-600 to-pink-700' : 'hover:scale-110 hover:from-purple-600 hover:to-pink-700'} 
+                         shadow-lg active:scale-95 border-2 border-yellow-300`
+                      : `bg-gradient-to-br from-blue-500 to-cyan-600 
+                         ${isTouched ? 'scale-95 from-blue-600 to-cyan-700' : 'hover:scale-110 hover:from-blue-600 hover:to-cyan-700'} 
+                         shadow-lg active:scale-95`
                     : 'bg-gray-600 cursor-not-allowed opacity-50'
                   }
                   focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-opacity-50
@@ -176,8 +185,13 @@ const LevelSelect = () => {
                 {!isUnlocked && (
                   <Lock size={14} className="absolute top-1 right-1 text-gray-300" />
                 )}
+                {isCrazyLevel && isUnlocked && (
+                  <span className="absolute top-1 left-1 text-yellow-300 text-xs">🎉</span>
+                )}
                 <div className="flex flex-col items-center gap-1 w-full">
-                  <span className="font-bold text-base sm:text-lg md:text-xl lg:text-lg xl:text-base">{level}</span>
+                  <span className="font-bold text-base sm:text-lg md:text-xl lg:text-lg xl:text-base">
+                    {isCrazyLevel ? 'C' : level}
+                  </span>
                   {isUnlocked && data && renderStars(data.stars)}
                   {data && data.score > 0 && (
                     <span className="text-xs sm:text-sm md:text-base lg:text-xs xl:text-xs text-white/70">
