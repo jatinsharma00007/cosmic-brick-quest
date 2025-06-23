@@ -31,7 +31,7 @@ const Index = () => {
   const handleStart = () => {
     setIsShattering(true);
     setIsZooming(true);
-    setTimeout(() => navigate('/level-select'), 1500);
+    setTimeout(() => navigate('/brick-mania'), 1500);
   };
 
 

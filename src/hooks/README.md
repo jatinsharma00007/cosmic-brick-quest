@@ -79,7 +79,7 @@ The hook uses the `applyGameInteractionFix` utility from `@/lib/utils.ts` which 
 ## Implementation Across Game Pages
 
 - **Game.tsx**: Full optimizations applied, preventing all unwanted interactions
-- **LevelSelect.tsx**: Most optimizations applied but scrolling is allowed for level selection
+- **BrickMania.tsx**: Most optimizations applied but scrolling is allowed for Brick Mania
 - **Index.tsx**: Basic optimizations for home screen with scrolling allowed
 
 ## Best Practices

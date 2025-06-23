@@ -56,7 +56,7 @@ export function applyGameInteractionFix(
   let metaTag: HTMLMetaElement | null = null;
   
   // Check if we're on the level select page
-  const isLevelSelectPage = window.location.pathname.includes('level-select');
+  const isBrickManiaPage = window.location.pathname.includes('brick-mania');
   
   // Add event listener and track for cleanup
   const addListener = (
@@ -100,7 +100,7 @@ export function applyGameInteractionFix(
     let lastTapTime = 0;
     const touchEndHandler = (e: TouchEvent) => {
       // Special handling for level select page - don't interfere with button clicks
-      if (isLevelSelectPage && e.target instanceof HTMLElement && 
+      if (isBrickManiaPage && e.target instanceof HTMLElement && 
           (e.target.tagName.toLowerCase() === 'button' || 
            e.target.closest('button') ||
            e.target.role === 'button')) {
@@ -160,7 +160,7 @@ export function applyGameInteractionFix(
     
     // Don't apply fixed position to body when preventScroll is true but we're in the level select
     // This allows scrolling in the level select page
-    if (!isLevelSelectPage) {
+    if (!isBrickManiaPage) {
       // Apply overflow hidden to body when in fullscreen game mode
       document.body.style.overflow = 'hidden';
       document.body.style.position = 'fixed';
@@ -180,7 +180,7 @@ export function applyGameInteractionFix(
          e.target.role === 'button' ||
          e.target.tagName.toLowerCase() === 'a');
       
-      if (!isLevelSelectPage && !isButton) {
+      if (!isBrickManiaPage && !isButton) {
         e.preventDefault();
       }
     };
