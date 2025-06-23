@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Lock, Star } from 'lucide-react';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import useGameInteraction from '@/hooks/use-game-interaction';
-import { getUnlockedLevels, getLevelConfig } from '@/lib/levelConfig';
+import { getUnlockedLevels, getLevelConfig, getCrazyLevels } from '@/lib/levelConfig';
 
 interface LevelData {
   stars: number;
@@ -15,11 +15,12 @@ interface LevelData {
 const LevelSelect = () => {
   const navigate = useNavigate();
   const [levelData, setLevelData] = useState<{ [key: string]: LevelData }>({});
+  const [crazyLevelData, setCrazyLevelData] = useState<{ [key: string]: LevelData }>({});
   const [progress, setProgress] = useState<Record<string, any>>({});
   const [totalStars, setTotalStars] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   // Add state for touch feedback
-  const [touchedLevel, setTouchedLevel] = useState<number | null>(null);
+  const [touchedLevel, setTouchedLevel] = useState<number | string | null>(null);
   // Add flag to track if navigation is in progress
   const isNavigatingRef = useRef(false);
   
@@ -54,58 +55,48 @@ const LevelSelect = () => {
         unlocked: isUnlocked
       };
     }
+    // Crazy levels
+    const crazyLevels = getCrazyLevels();
+    const crazyData: { [key: string]: LevelData } = {};
+    crazyLevels.forEach(cl => {
+      const key = `crazy_${cl.requiredLevel ? cl.requiredLevel / 5 : ''}`;
+      crazyData[key] = {
+        stars: data[key]?.stars || 0,
+        score: data[key]?.score || 0,
+        unlocked: unlockedLevels.find(l => l.id === cl.id)?.unlocked || false
+      };
+    });
     setLevelData(initialData);
+    setCrazyLevelData(crazyData);
   };
 
   // Enhanced level selection handler with debounce to prevent double navigation
-  const handleLevelClick = useCallback((level: number, event?: React.MouseEvent | React.TouchEvent) => {
-    // Prevent default behavior to avoid any browser-specific issues
-    if (event) {
-      event.preventDefault();
-    }
-    
-    // Check if we're already navigating to prevent double navigation
-    if (isNavigatingRef.current) {
-      return;
-    }
-    
-    const levelKey = `level_${level}`;
-    if (levelData[levelKey]?.unlocked) {
-      // Set navigating flag to true to prevent duplicate navigation
+  const handleLevelClick = useCallback((levelId: number | string, event?: React.MouseEvent | React.TouchEvent) => {
+    if (event) event.preventDefault();
+    if (isNavigatingRef.current) return;
+    let key = typeof levelId === 'number' ? `level_${levelId}` : levelId;
+    const isUnlocked = typeof levelId === 'number' ? levelData[key]?.unlocked : crazyLevelData[key]?.unlocked;
+    if (isUnlocked) {
       isNavigatingRef.current = true;
-      
-      // Navigate with a slight delay to allow touch feedback to show
       setTimeout(() => {
-        navigate(`/game?level=${level}`);
-        // Reset the flag after a longer timeout to ensure navigation completes
-        setTimeout(() => {
-          isNavigatingRef.current = false;
-        }, 500);
+        navigate(`/game?level=${levelId}`);
+        setTimeout(() => { isNavigatingRef.current = false; }, 500);
       }, 100);
     }
-  }, [levelData, navigate]);
+  }, [levelData, crazyLevelData, navigate]);
 
   // Touch event handlers
-  const handleTouchStart = useCallback((level: number, e: React.TouchEvent) => {
-    // Prevent default to avoid any potential double-firing with click events
+  const handleTouchStart = useCallback((levelId: number | string, e: React.TouchEvent) => {
     e.stopPropagation();
-    
-    const levelKey = `level_${level}`;
-    if (levelData[levelKey]?.unlocked) {
-      setTouchedLevel(level);
-    }
-  }, [levelData]);
+    let key = typeof levelId === 'number' ? `level_${levelId}` : levelId;
+    const isUnlocked = typeof levelId === 'number' ? levelData[key]?.unlocked : crazyLevelData[key]?.unlocked;
+    if (isUnlocked) setTouchedLevel(levelId as number);
+  }, [levelData, crazyLevelData]);
 
-  const handleTouchEnd = useCallback((level: number, e: React.TouchEvent) => {
-    // Prevent default to avoid any potential double-firing with click events
+  const handleTouchEnd = useCallback((levelId: number | string, e: React.TouchEvent) => {
     e.stopPropagation();
-    
     setTouchedLevel(null);
-    // On touch devices, handle navigation in the touch handler
-    // and prevent the click handler from firing
-    if ('ontouchstart' in window) {
-      handleLevelClick(level, e);
-    }
+    if ('ontouchstart' in window) handleLevelClick(levelId, e);
   }, [handleLevelClick]);
 
   const handleTouchCancel = useCallback(() => {
@@ -127,6 +118,21 @@ const LevelSelect = () => {
     </div>
   );
 
+  // Build the level grid with crazy levels inserted after every 5th standard level
+  const renderLevels = () => {
+    const levels: (number | string)[] = [];
+    for (let i = 1; i <= 100; i++) {
+      levels.push(i);
+      if (i % 5 === 0) {
+        const crazyId = `crazy_${i / 5}`;
+        if (crazyLevelData[crazyId]?.unlocked) {
+          levels.push(crazyId);
+        }
+      }
+    }
+    return levels;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-950 to-purple-900 py-8 px-4" ref={containerRef}>
       <Button
@@ -147,30 +153,39 @@ const LevelSelect = () => {
         </div>
 
         <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2 sm:gap-4 max-w-full sm:max-w-4xl mx-auto">
-          {Array.from({ length: 100 }, (_, i) => {
-            const level = i + 1;
-            const levelKey = `level_${level}`;
-            const data = levelData[levelKey];
-            const levelConfig = getLevelConfig(level);
-            const isUnlocked = data?.unlocked || false;
-            const isTouched = touchedLevel === level;
-            const isCrazyLevel = levelConfig?.isCrazyLevel || false;
-
+          {renderLevels().map((levelId) => {
+            const isCrazy = typeof levelId === 'string';
+            let data, levelConfig, isUnlocked, isTouched, isCompleted;
+            if (isCrazy) {
+              data = crazyLevelData[levelId];
+              levelConfig = getLevelConfig(levelId);
+              isUnlocked = data?.unlocked;
+              isTouched = touchedLevel === levelId;
+              isCompleted = data?.score > 0;
+            } else {
+              const level = levelId as number;
+              const levelKey = `level_${level}`;
+              data = levelData[levelKey];
+              levelConfig = getLevelConfig(level);
+              isUnlocked = data?.unlocked;
+              isTouched = touchedLevel === level;
+              isCompleted = data?.score > 0;
+            }
             return (
               <button
-                key={level}
-                onClick={(e) => 'ontouchstart' in window ? null : handleLevelClick(level, e)}
-                onTouchStart={(e) => handleTouchStart(level, e)}
-                onTouchEnd={(e) => handleTouchEnd(level, e)}
+                key={levelId}
+                onClick={(e) => 'ontouchstart' in window ? null : handleLevelClick(levelId, e)}
+                onTouchStart={(e) => handleTouchStart(levelId, e)}
+                onTouchEnd={(e) => handleTouchEnd(levelId, e)}
                 onTouchCancel={handleTouchCancel}
                 disabled={!isUnlocked}
-                aria-label={`Level ${level}${!isUnlocked ? ' (locked)' : ''}`}
+                aria-label={isCrazy ? `Crazy Level ${levelConfig?.requiredLevel / 5}` : `Level ${levelId}${!isUnlocked ? ' (locked)' : ''}`}
                 className={`
                   w-full aspect-square rounded-lg flex flex-col items-center justify-center
                   text-white font-bold text-xs xs:text-sm sm:text-base md:text-lg
                   transition-all duration-200 transform relative
                   ${isUnlocked 
-                    ? isCrazyLevel
+                    ? isCrazy
                       ? `bg-gradient-to-br from-purple-500 to-pink-600 
                          ${isTouched ? 'scale-95 from-purple-600 to-pink-700' : 'hover:scale-110 hover:from-purple-600 hover:to-pink-700'} 
                          shadow-lg active:scale-95 border-2 border-yellow-300`
@@ -185,14 +200,17 @@ const LevelSelect = () => {
                 {!isUnlocked && (
                   <Lock size={14} className="absolute top-1 right-1 text-gray-300" />
                 )}
-                {isCrazyLevel && isUnlocked && (
+                {isCrazy && isUnlocked && (
                   <span className="absolute top-1 left-1 text-yellow-300 text-xs">🎉</span>
                 )}
                 <div className="flex flex-col items-center gap-1 w-full">
                   <span className="font-bold text-base sm:text-lg md:text-xl lg:text-lg xl:text-base">
-                    {isCrazyLevel ? 'C' : level}
+                    {isCrazy ? 'C' + (levelConfig?.requiredLevel ? levelConfig.requiredLevel / 5 : '') : levelId}
                   </span>
                   {isUnlocked && data && renderStars(data.stars)}
+                  {isCompleted && (
+                    <span className="text-xs sm:text-sm md:text-base lg:text-xs xl:text-xs text-green-300 font-bold">✓</span>
+                  )}
                   {data && data.score > 0 && (
                     <span className="text-xs sm:text-sm md:text-base lg:text-xs xl:text-xs text-white/70">
                       {data.score}

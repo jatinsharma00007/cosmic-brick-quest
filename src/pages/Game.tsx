@@ -61,26 +61,41 @@ interface FloatingScore {
 
 // HUD Component
 interface GameHUDProps {
-  level: number;
+  level: number | string;
   bricksBroken: number;
   score: number;
   maxPossibleScore: number;
   liveStars: number;
   lives: number;
   handleMenuOpen: () => void;
+  isCrazyLevel: boolean;
+  crazyLevelName?: string;
 }
-const GameHUD = React.memo(({ level, bricksBroken, score, maxPossibleScore, liveStars, lives, handleMenuOpen }: GameHUDProps) => (
+const GameHUD = React.memo(({ level, bricksBroken, score, maxPossibleScore, liveStars, lives, handleMenuOpen, isCrazyLevel, crazyLevelName }: GameHUDProps) => (
   <div className="bg-black/50 text-white p-2 sm:p-4 pb-4 sm:pb-4 flex flex-wrap justify-between items-center gap-2 relative">
-    <div className="font-bold text-base sm:text-lg">Level {level}/100</div>
+    <div className="font-bold text-base sm:text-lg">
+      {isCrazyLevel ? (
+        <span>{crazyLevelName || 'Crazy Level'}</span>
+      ) : (
+        <>Level {level}/100</>
+      )}
+    </div>
     <div className="flex gap-2 sm:gap-8 items-center">
       <div className="flex items-center gap-1 text-sm sm:text-base">
         🧱 <span className="ml-1">{bricksBroken}</span>
       </div>
       <XPBarWithStars score={score} maxScore={maxPossibleScore} stars={liveStars} />
       <div className="flex items-center gap-1">
-        {Array.from({ length: lives }, (_, i) => (
-          <Heart key={i} size={16} className="text-red-500 fill-red-500 sm:w-[18px] sm:h-[18px]" />
-        ))}
+        {isCrazyLevel ? (
+          <span className="flex items-center text-red-500 font-bold text-base sm:text-lg">
+            <Heart size={25} className="text-red-500 fill-red-500 mr-2" />
+            <span style={{ color: '#FFD700', fontSize: '40px', fontWeight: 'bold', padding: '0 2px', paddingBottom: '12px' }}>∞</span>
+          </span>
+        ) : (
+          Number.isFinite(lives) && Array.from({ length: lives }, (_, i) => (
+            <Heart key={i} size={25} className="text-red-500 fill-red-500 sm:w-[25px] sm:h-[25px]" />
+          ))
+        )}
       </div>
     </div>
     <Button
@@ -189,7 +204,7 @@ const LevelCompleteModal = React.memo(({ level, score, lives, liveStars, navigat
   
   // Check if a crazy level was unlocked
   const nextLevel = getNextLevel(level);
-  const crazyLevelUnlocked = nextLevel?.isCrazyLevel && isCrazyLevelUnlocked(nextLevel.id);
+  const crazyLevelUnlocked = nextLevel?.isCrazyLevel && isCrazyLevelUnlocked(String(nextLevel.id));
   
   return (
     <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -263,6 +278,19 @@ const LevelFailedModal = React.memo(({ score, resetLevel, quitToMenu }: LevelFai
         <Button onClick={resetLevel} className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-sm sm:text-base">Try Again</Button>
         <Button onClick={quitToMenu} className='w-full sm:w-auto text-green-600 text-sm sm:text-base' variant="outline">Level Select</Button>
       </div>
+    </div>
+  </div>
+));
+
+// --- Crazy Level Completion Modal ---
+const CrazyLevelCompleteModal = React.memo(({ levelName, score, quitToMenu }: { levelName: string, score: number, quitToMenu: () => void }) => (
+  <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+    <div className="bg-gradient-to-br from-purple-700 to-pink-700 p-6 rounded-xl text-white text-center space-y-4 w-full max-w-[320px]">
+      <h2 className="text-2xl sm:text-3xl font-bold text-yellow-300">Crazy Level Complete!</h2>
+      <div className="text-lg font-bold text-pink-200">{levelName}</div>
+      <div className="text-lg">Score: <span className="text-yellow-200">{score}</span></div>
+      <div className="text-sm text-pink-100">You can only play this crazy level once. Well done!</div>
+      <Button onClick={quitToMenu} className="w-full bg-blue-600 hover:bg-blue-700 text-sm sm:text-base">Back to Level Select</Button>
     </div>
   </div>
 ));
@@ -763,30 +791,33 @@ const Game = () => {
       // Process paddle movement in both ready and playing states, as long as not paused
       if (!isPaused && (currentGameState === 'ready' || currentGameState === 'playing')) {
         // Keyboard controls - immediate movement
+        let paddleMovedByKeyboard = false;
         if (keysRef.current['ArrowLeft']) {
           setPaddle(prev => {
-            const newX = Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed);
-            if (GAME_SETTINGS.debug && currentGameState === 'ready' && frameCountRef.current % 60 === 0) {
-              console.log('Moving paddle LEFT:', prev.x, '->', newX);
+            const newX = Math.max(0, prev.x - GAME_SETTINGS.paddle.moveSpeed * 1.2);
+            if (currentGameState === 'ready') {
+              setBall(ballPrev => ({
+                ...ballPrev,
+                x: newX + prev.width / 2,
+                y: prev.y - ballPrev.radius - 2
+              }));
             }
-            targetPaddleXRef.current = newX; // Update target position
-            return {
-            ...prev,
-              x: newX
-            };
+            paddleMovedByKeyboard = true;
+            return { ...prev, x: newX };
           });
         }
         if (keysRef.current['ArrowRight']) {
           setPaddle(prev => {
-            const newX = Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed);
-            if (GAME_SETTINGS.debug && currentGameState === 'ready' && frameCountRef.current % 60 === 0) {
-              console.log('Moving paddle RIGHT:', prev.x, '->', newX);
+            const newX = Math.min(GAME_SETTINGS.canvas.width - prev.width, prev.x + GAME_SETTINGS.paddle.moveSpeed * 1.2);
+            if (currentGameState === 'ready') {
+              setBall(ballPrev => ({
+                ...ballPrev,
+                x: newX + prev.width / 2,
+                y: prev.y - ballPrev.radius - 2
+              }));
             }
-            targetPaddleXRef.current = newX; // Update target position
-            return {
-              ...prev,
-              x: newX
-            };
+            paddleMovedByKeyboard = true;
+            return { ...prev, x: newX };
           });
         }
 
@@ -1107,8 +1138,8 @@ const Game = () => {
     }
   };
 
-  const generateLevel = (levelNumber: number): Brick[] => {
-    const levelConfig = getLevelConfig(levelNumber);
+  const generateLevel = (levelId: number | string): Brick[] => {
+    const levelConfig = getLevelConfig(levelId);
     if (levelConfig) {
       // Use the structured level configuration
       return levelConfig.bricks.map(brick => ({
@@ -1125,7 +1156,7 @@ const Game = () => {
       }));
     }
     // fallback to old random generation if not found
-    const config = getDifficultyConfig(levelNumber);
+    const config = typeof levelId === 'number' ? getDifficultyConfig(levelId) : getDifficultyConfig(1);
     const newBricks: Brick[] = [];
     const materialTypes = Object.keys(SCORE_SETTINGS.materialBricks) as Array<keyof typeof SCORE_SETTINGS.materialBricks>;
     const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
@@ -1167,9 +1198,14 @@ const Game = () => {
     return newBricks;
   };
 
-  const initializeGame = useCallback((levelNumber?: number) => {
+  // Place these before initializeGame
+  const [levelId, setLevelId] = useState<number | string>(1);
+  const [isCrazyLevel, setIsCrazyLevel] = useState(false);
+  const [crazyLevelName, setCrazyLevelName] = useState<string>('');
+
+  const initializeGame = useCallback((levelArg?: number | string) => {
     if (isInitializedRef.current) return;
-    const currentLevel = levelNumber || level;
+    const currentLevel = typeof levelArg !== 'undefined' ? levelArg : levelId;
     const levelConfig = getLevelConfig(currentLevel);
     const newBricks = generateLevel(currentLevel);
     setScore(0);
@@ -1221,7 +1257,7 @@ const Game = () => {
     setBall(newBall);
     setBricks(newBricks);
     isInitializedRef.current = true;
-  }, [level, isMobile]);
+  }, [level, isMobile, levelId]);
 
   const handleMenuOpen = useCallback(() => {
     if (GAME_SETTINGS.debug) {
@@ -1736,31 +1772,24 @@ const Game = () => {
 
   useEffect(() => {
     const levelParam = searchParams.get('level');
-    const newLevel = levelParam ? parseInt(levelParam) : 1;
-    if (newLevel !== level) {
-      setLevel(newLevel);
-      isInitializedRef.current = false;
-      initializeGame(newLevel);
-    } else if (!isInitializedRef.current) {
-      initializeGame(newLevel);
-    }
-    
-    document.title = `Level ${newLevel} - Brick Breaker`;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+    let parsedLevel: number | string = 1;
+    if (levelParam) {
+      if (!isNaN(Number(levelParam)) && String(Number(levelParam)) === levelParam) {
+        parsedLevel = parseInt(levelParam);
+      } else {
+        parsedLevel = levelParam;
       }
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [searchParams, level, initializeGame, handleKeyDown, handleKeyUp]);
+    }
+    setLevelId(parsedLevel);
+    setLevel(typeof parsedLevel === 'number' ? parsedLevel : 1); // for legacy code
+    const config = getLevelConfig(parsedLevel);
+    setIsCrazyLevel(!!config?.isCrazyLevel);
+    setCrazyLevelName(config?.name || '');
+    isInitializedRef.current = false;
+    initializeGame(parsedLevel);
+    document.title = config?.isCrazyLevel ? `${config.name} - Brick Breaker` : `Level ${parsedLevel} - Brick Breaker`;
+    // ... existing code ...
+  }, [searchParams, initializeGame]);
 
   // Add canvasReady state
   const [canvasReady, setCanvasReady] = useState(false);
@@ -2371,12 +2400,65 @@ const Game = () => {
       !['won', 'levelFailed'].includes(gameState)
   });
 
+  // --- Crazy Level Detection ---
+  // --- On mount, parse level param as string or number ---
+  useEffect(() => {
+    const levelParam = searchParams.get('level');
+    let parsedLevel: number | string = 1;
+    if (levelParam) {
+      if (!isNaN(Number(levelParam)) && String(Number(levelParam)) === levelParam) {
+        parsedLevel = parseInt(levelParam);
+      } else {
+        parsedLevel = levelParam;
+      }
+    }
+    setLevelId(parsedLevel);
+    setLevel(typeof parsedLevel === 'number' ? parsedLevel : 1); // for legacy code
+    const config = getLevelConfig(parsedLevel);
+    setIsCrazyLevel(!!config?.isCrazyLevel);
+    setCrazyLevelName(config?.name || '');
+    isInitializedRef.current = false;
+    initializeGame(parsedLevel);
+    document.title = config?.isCrazyLevel ? `${config.name} - Brick Breaker` : `Level ${parsedLevel} - Brick Breaker`;
+    // ... existing code ...
+  }, [searchParams, initializeGame]);
+
+  // --- Crazy Level: Prevent replay if completed ---
+  useEffect(() => {
+    if (isCrazyLevel) {
+      const saved = localStorage.getItem('brickBreakerProgress');
+      const data = saved ? JSON.parse(saved) : {};
+      if (data[levelId]?.completed) {
+        setShowSummary(true);
+        setSummaryData({ alreadyCompleted: true });
+      }
+    }
+  }, [isCrazyLevel, levelId]);
+
+  // --- Crazy Level: Infinite lives, no failure ---
+  useEffect(() => {
+    if (isCrazyLevel) {
+      setLives(Infinity);
+    } else {
+      setLives(GAME_SETTINGS.lives);
+    }
+  }, [isCrazyLevel]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleKeyDown, handleKeyUp]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 relative flex flex-col">
       {/* Game UI Container with relative positioning */}
       <div className="flex flex-col w-full relative" ref={gameContainerRef}>
         {/* Header Bar */}
-        <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} />
+        <GameHUD level={level} bricksBroken={bricksBroken} score={score} maxPossibleScore={maxPossibleScore} liveStars={liveStars} lives={lives} handleMenuOpen={handleMenuOpen} isCrazyLevel={isCrazyLevel} crazyLevelName={crazyLevelName} />
 
         {/* Controls Help Button - Better responsive positioning */}
         <div className="absolute right-4 z-40" style={{ 
@@ -2723,6 +2805,10 @@ const Game = () => {
 
       {gameState === 'levelFailed' && (
         <LevelFailedModal score={score} resetLevel={resetLevel} quitToMenu={quitToMenu} />
+      )}
+
+      {isCrazyLevel && gameState === 'won' && (
+        <CrazyLevelCompleteModal levelName={crazyLevelName} score={score} quitToMenu={quitToMenu} />
       )}
     </div>
   );

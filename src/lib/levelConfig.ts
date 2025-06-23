@@ -14,7 +14,7 @@ export interface LevelBrick {
 }
 
 export interface LevelConfig {
-  id: number;
+  id: number | string;
   name: string;
   description: string;
   bricks: LevelBrick[];
@@ -154,7 +154,7 @@ export const LEVEL_CONFIGS: LevelConfig[] = [
   },
   // Crazy Level 1 (unlocked after Level 5)
   {
-    id: 6,
+    id: 'crazy_1',
     name: "🎉 CRAZY: Bouncy Castle",
     description: "Everything bounces! Even the walls! Pure chaos and fun!",
     difficulty: 'easy',
@@ -274,7 +274,7 @@ export const LEVEL_CONFIGS: LevelConfig[] = [
   },
   // Crazy Level 2 (unlocked after Level 10)
   {
-    id: 11,
+    id: 'crazy_2',
     name: "🎉 CRAZY: Rainbow Rush",
     description: "Every brick is a different color! Can you catch them all?",
     difficulty: 'medium',
@@ -304,11 +304,11 @@ export const LEVEL_CONFIGS: LevelConfig[] = [
 ];
 
 // Helper functions for level management
-export const getLevelConfig = (levelId: number): LevelConfig | undefined => {
+export const getLevelConfig = (levelId: number | string): LevelConfig | undefined => {
   return LEVEL_CONFIGS.find(level => level.id === levelId);
 };
 
-export const getNextLevel = (currentLevelId: number): LevelConfig | undefined => {
+export const getNextLevel = (currentLevelId: number | string): LevelConfig | undefined => {
   const currentIndex = LEVEL_CONFIGS.findIndex(level => level.id === currentLevelId);
   if (currentIndex === -1 || currentIndex === LEVEL_CONFIGS.length - 1) {
     return undefined;
@@ -316,7 +316,7 @@ export const getNextLevel = (currentLevelId: number): LevelConfig | undefined =>
   return LEVEL_CONFIGS[currentIndex + 1];
 };
 
-export const getPreviousLevel = (currentLevelId: number): LevelConfig | undefined => {
+export const getPreviousLevel = (currentLevelId: number | string): LevelConfig | undefined => {
   const currentIndex = LEVEL_CONFIGS.findIndex(level => level.id === currentLevelId);
   if (currentIndex <= 0) {
     return undefined;
@@ -327,34 +327,31 @@ export const getPreviousLevel = (currentLevelId: number): LevelConfig | undefine
 export const getCrazyLevelForRegularLevel = (regularLevelId: number): LevelConfig | undefined => {
   // Crazy levels are unlocked after every 5th level
   if (regularLevelId % 5 === 0) {
-    const crazyLevelId = regularLevelId + 1;
+    const crazyLevelId = `crazy_${regularLevelId / 5}`;
     return getLevelConfig(crazyLevelId);
   }
   return undefined;
 };
 
-export const isCrazyLevelUnlocked = (crazyLevelId: number): boolean => {
+export const isCrazyLevelUnlocked = (crazyLevelId: string): boolean => {
   const crazyLevel = getLevelConfig(crazyLevelId);
   if (!crazyLevel || !crazyLevel.isCrazyLevel) {
     return false;
   }
-  
   // Check if the required regular level is completed
   const requiredLevel = crazyLevel.requiredLevel;
   if (!requiredLevel) {
     return false;
   }
-  
   // This will be checked against saved progress
   const saved = localStorage.getItem('brickBreakerProgress');
   const data = saved ? JSON.parse(saved) : {};
   const requiredLevelData = data[`level_${requiredLevel}`];
-  
   return requiredLevelData?.completed || false;
 };
 
 export const getTotalLevels = (): number => {
-  return LEVEL_CONFIGS.length;
+  return LEVEL_CONFIGS.filter(level => !level.isCrazyLevel).length;
 };
 
 export const getRegularLevels = (): LevelConfig[] => {
@@ -368,22 +365,18 @@ export const getCrazyLevels = (): LevelConfig[] => {
 export const getUnlockedLevels = (): LevelConfig[] => {
   const saved = localStorage.getItem('brickBreakerProgress');
   const data = saved ? JSON.parse(saved) : {};
-  
   return LEVEL_CONFIGS.map(level => {
     if (level.id === 1) {
       return { ...level, unlocked: true };
     }
-    
     if (level.isCrazyLevel) {
-      return { ...level, unlocked: isCrazyLevelUnlocked(level.id) };
+      return { ...level, unlocked: isCrazyLevelUnlocked(level.id as string) };
     }
-    
     // For regular levels, check if previous level is completed
     const previousLevel = getPreviousLevel(level.id);
     if (!previousLevel) {
       return { ...level, unlocked: true };
     }
-    
     const previousLevelData = data[`level_${previousLevel.id}`];
     return { ...level, unlocked: previousLevelData?.completed || false };
   });
