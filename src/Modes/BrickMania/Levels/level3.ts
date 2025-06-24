@@ -5,8 +5,8 @@ const level3: LevelConfig = {
   name: 'Triangle Formation',
   description: 'Bricks arranged in a triangular pattern.',
   difficulty: 'easy',
-  paddleWidth: 120,
-  ballSpeed: 4,
+  paddleWidth: 120, // Narrower paddle
+  ballSpeed: 3.5,   // Slightly faster ball
   unlocked: false,
   bricks: [
     createBrick(400, 100, 80, 30, '#9C27B0'),
@@ -18,4 +18,4 @@ const level3: LevelConfig = {
   ],
 };
 
-export default level3; 
+export default level3;

@@ -2,20 +2,28 @@ import { LevelConfig, createBrick, createMaterialBrick } from '../../../lib/leve
 
 const level4: LevelConfig = {
   id: 4,
-  name: 'Material Introduction',
-  description: 'Meet your first special material bricks!',
-  difficulty: 'easy',
-  paddleWidth: 120,
-  ballSpeed: 4,
+  name: 'Bronze Descent',
+  description: 'An inverted pyramid with your first material bricks: Bronze!',
+  difficulty: 'medium',
+  paddleWidth: 110,
+  ballSpeed: 3.7,
   unlocked: false,
   bricks: [
-    createBrick(300, 100, 80, 30, '#4CAF50'),
-    createMaterialBrick(400, 100, 80, 30, 'iron'),
-    createBrick(500, 100, 80, 30, '#4CAF50'),
-    createBrick(350, 150, 80, 30, '#4CAF50'),
-    createMaterialBrick(450, 150, 80, 30, 'copper'),
-    createBrick(550, 150, 80, 30, '#4CAF50'),
+    // Top Row (widest)
+    createBrick(200, 80, 80, 30, '#FFB300'),
+    createBrick(300, 80, 80, 30, '#FFB300'),
+    createBrick(400, 80, 80, 30, '#FFB300'),
+    createBrick(500, 80, 80, 30, '#FFB300'),
+    createBrick(600, 80, 80, 30, '#FFB300'),
+
+    // Middle Row
+    createBrick(250, 120, 80, 30, '#FFA000'),
+    createMaterialBrick(350, 120, 80, 30, 'bronze'),
+    createBrick(450, 120, 80, 30, '#FFA000'),
+
+    // Bottom Row (tip of the pyramid)
+    createMaterialBrick(400, 160, 80, 30, 'bronze'),
   ],
 };
 
-export default level4; 
+export default level4;

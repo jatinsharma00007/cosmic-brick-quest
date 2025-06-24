@@ -3,23 +3,25 @@ import { LevelConfig, createBrick } from '../../../lib/levelConfig';
 const level2: LevelConfig = {
   id: 2,
   name: 'Double Trouble',
-  description: 'Two rows of bricks to test your skills.',
+  description: 'Two rows of bricks to test your timing.',
   difficulty: 'easy',
-  paddleWidth: 120,
-  ballSpeed: 4,
+  paddleWidth: 130, // Slightly smaller paddle
+  ballSpeed: 3.2,   // Slightly faster ball
   unlocked: false,
   bricks: [
-    createBrick(300, 100, 80, 30, '#2196F3'),
-    createBrick(400, 100, 80, 30, '#2196F3'),
-    createBrick(500, 100, 80, 30, '#2196F3'),
-    createBrick(600, 100, 80, 30, '#2196F3'),
-    createBrick(200, 100, 80, 30, '#2196F3'),
-    createBrick(300, 150, 80, 30, '#FF9800'),
-    createBrick(400, 150, 80, 30, '#FF9800'),
-    createBrick(500, 150, 80, 30, '#FF9800'),
-    createBrick(600, 150, 80, 30, '#FF9800'),
-    createBrick(200, 150, 80, 30, '#FF9800'),
+    // First row
+    createBrick(240, 100, 80, 30, '#03A9F4'),
+    createBrick(340, 100, 80, 30, '#03A9F4'),
+    createBrick(440, 100, 80, 30, '#03A9F4'),
+    createBrick(540, 100, 80, 30, '#03A9F4'),
+    createBrick(640, 100, 80, 30, '#03A9F4'),
+
+    // Second row
+    createBrick(290, 140, 80, 30, '#0288D1'),
+    createBrick(390, 140, 80, 30, '#0288D1'),
+    createBrick(490, 140, 80, 30, '#0288D1'),
+    createBrick(590, 140, 80, 30, '#0288D1'),
   ],
 };
 
-export default level2; 
+export default level2;

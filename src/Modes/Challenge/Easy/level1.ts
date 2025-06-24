@@ -1,4 +1,4 @@
-import { LevelConfig, createBrick } from '../../../../lib/levelConfig';
+import { LevelConfig, createBrick, createMaterialBrick } from '../../../lib/levelConfig';
 
 const easyLevel1: LevelConfig = {
   id: 1,
@@ -14,6 +14,7 @@ const easyLevel1: LevelConfig = {
     createBrick(520, 120, 80, 30, '#A7F3D0'),
     createBrick(370, 170, 80, 30, '#6EE7B7'),
     createBrick(470, 170, 80, 30, '#6EE7B7'),
+    createMaterialBrick(400, 220, 80, 30, 'gold'),
   ],
 };
 

@@ -13,6 +13,12 @@ import useGameInteraction from '@/hooks/use-game-interaction';
 import drag from '/assets/drag.png';
 import tap from '/assets/tap.png';
 
+import brickManiaLevels from '@/Modes/BrickMania/Levels';
+import easyChallengeLevels from '@/Modes/Challenge/Easy';
+import mediumChallengeLevels from '@/Modes/Challenge/Medium';
+import hardChallengeLevels from '@/Modes/Challenge/Hard';
+import endlessLevels from '@/Modes/ThrophyRoad';
+
 interface Brick {
   x: number;
   y: number;
@@ -22,8 +28,23 @@ interface Brick {
   destroyed: boolean;
   hits: number;
   maxHits: number;
-  type: 'normal' | 'material';
+  type: 'normal' | 'material' | 'specialEffect' | 'mystery' | 'behavior' | 'powerUp' | 'bonus';
   material?: keyof typeof SCORE_SETTINGS.materialBricks;
+  specialEffect?: keyof typeof SCORE_SETTINGS.specialEffectBricks;
+  mystery?: keyof typeof SCORE_SETTINGS.mysteryBricks;
+  behavior?: keyof typeof SCORE_SETTINGS.behaviorBricks;
+  powerUp?: keyof typeof SCORE_SETTINGS.powerUpBricks;
+  bonus?: keyof typeof SCORE_SETTINGS.bonusBricks;
+  // For moving bricks
+  moveSpeed?: number;
+  moveDirection?: 'horizontal' | 'vertical';
+  moveRange?: number;
+  originalX?: number;
+  originalY?: number;
+  // For explosive bricks
+  explosionRadius?: number;
+  // For portal bricks
+  portalTarget?: { x: number; y: number };
 }
 
 interface Ball {
@@ -268,6 +289,63 @@ function getMaxPossibleScore(bricks: Brick[]): number {
   return bricks.length * 100 + GAME_SETTINGS.lives * 500;
 }
 
+// Helper: Get brick score based on type
+function getBrickScore(brick: Brick): number {
+  if (brick.type === 'material' && brick.material) {
+    return SCORE_SETTINGS.materialBricks[brick.material].points;
+  } else if (brick.type === 'specialEffect' && brick.specialEffect) {
+    return SCORE_SETTINGS.specialEffectBricks[brick.specialEffect].points;
+  } else if (brick.type === 'mystery' && brick.mystery) {
+    // Mystery bricks have random points between 0-150
+    return Math.floor(Math.random() * 151);
+  } else if (brick.type === 'behavior' && brick.behavior) {
+    return SCORE_SETTINGS.behaviorBricks[brick.behavior].points;
+  } else if (brick.type === 'powerUp' && brick.powerUp) {
+    return SCORE_SETTINGS.powerUpBricks[brick.powerUp].points;
+  } else if (brick.type === 'bonus' && brick.bonus) {
+    return SCORE_SETTINGS.bonusBricks[brick.bonus].points;
+  }
+  return SCORE_SETTINGS.normalBrick;
+}
+
+// Helper: Get brick color based on type
+function getBrickColor(brick: Brick): string {
+  if (brick.type === 'material' && brick.material) {
+    return SCORE_SETTINGS.materialBricks[brick.material].color;
+  } else if (brick.type === 'specialEffect' && brick.specialEffect) {
+    return SCORE_SETTINGS.specialEffectBricks[brick.specialEffect].color;
+  } else if (brick.type === 'mystery' && brick.mystery) {
+    return SCORE_SETTINGS.mysteryBricks[brick.mystery].color;
+  } else if (brick.type === 'behavior' && brick.behavior) {
+    return SCORE_SETTINGS.behaviorBricks[brick.behavior].color;
+  } else if (brick.type === 'powerUp' && brick.powerUp) {
+    return SCORE_SETTINGS.powerUpBricks[brick.powerUp].color;
+  } else if (brick.type === 'bonus' && brick.bonus) {
+    return SCORE_SETTINGS.bonusBricks[brick.bonus].color;
+  }
+  return brick.color;
+}
+
+// Helper: Get brick effect (shadow) based on type
+function getBrickEffect(brick: Brick): string {
+  if (brick.type === 'material' && brick.material) {
+    return SCORE_SETTINGS.materialBricks[brick.material].effect;
+  } else if (brick.type === 'specialEffect' && brick.specialEffect) {
+    return SCORE_SETTINGS.specialEffectBricks[brick.specialEffect].effect;
+  } else if (brick.type === 'mystery' && brick.mystery) {
+    return SCORE_SETTINGS.mysteryBricks[brick.mystery].effect;
+  } else if (brick.type === 'behavior' && brick.behavior) {
+    return SCORE_SETTINGS.behaviorBricks[brick.behavior].effect;
+  } else if (brick.type === 'powerUp' && brick.powerUp) {
+    return SCORE_SETTINGS.powerUpBricks[brick.powerUp].effect;
+  } else if (brick.type === 'bonus' && brick.bonus) {
+    return SCORE_SETTINGS.bonusBricks[brick.bonus].effect;
+  }
+  return SCORE_SETTINGS.normalBrickShadow;
+}
+
+
+
 // Add ParticleEffectState interface
 interface ParticleEffectState {
   id: number;
@@ -348,8 +426,43 @@ const Game = () => {
   const [levelStartTime, setLevelStartTime] = useState<number>(Date.now());
   const [liveStars, setLiveStars] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
-  const [summaryData, setSummaryData] = useState<any>(null);
+  const [summaryData, setSummaryData] = useState<{
+    time: number;
+    stars: number;
+    score: number;
+  } | null>(null);
   const floatingScoreId = useRef(0);
+
+  // Power-up and special effect states
+  const [activePowerUps, setActivePowerUps] = useState<{
+    multiBall: boolean;
+    enlargePaddle: boolean;
+    shrinkPaddle: boolean;
+    slowBall: boolean;
+    laserPaddle: boolean;
+  }>({
+    multiBall: false,
+    enlargePaddle: false,
+    shrinkPaddle: false,
+    slowBall: false,
+    laserPaddle: false,
+  });
+
+  const [powerUpTimers, setPowerUpTimers] = useState<{
+    [key: string]: NodeJS.Timeout;
+  }>({});
+
+  const [ballSpeed, setBallSpeed] = useState(GAME_SETTINGS.ball.baseSpeed);
+  const [paddleWidth, setPaddleWidth] = useState(100);
+  const [isFrozen, setIsFrozen] = useState(false);
+  const [freezeTimer, setFreezeTimer] = useState<NodeJS.Timeout | null>(null);
+  const [explosionEffects, setExplosionEffects] = useState<Array<{
+    x: number;
+    y: number;
+    radius: number;
+    duration: number;
+  }>>([]);
+  const [additionalBalls, setAdditionalBalls] = useState<Ball[]>([]);
 
   // Calculate max possible score for XP bar
   const maxPossibleScore = bricks.length * 100 + GAME_SETTINGS.lives * 500;
@@ -382,6 +495,160 @@ const Game = () => {
   const [countdownValue, setCountdownValue] = useState(2);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   
+  const mode = searchParams.get('mode') || 'brick-mania';
+  const difficulty = searchParams.get('difficulty') || 'easy';
+  const levelNumber = Number(searchParams.get('level')) || 1;
+
+  // Helper to get the correct level config
+  const getLevelConfig = useCallback(() => {
+    if (mode === 'brick-mania') {
+      return brickManiaLevels[levelNumber - 1] || brickManiaLevels[0];
+    } else if (mode === 'challenge') {
+      if (difficulty === 'easy') return easyChallengeLevels[levelNumber - 1] || easyChallengeLevels[0];
+      if (difficulty === 'medium') return mediumChallengeLevels[levelNumber - 1] || mediumChallengeLevels[0];
+      if (difficulty === 'hard') return hardChallengeLevels[levelNumber - 1] || hardChallengeLevels[0];
+    } else if (mode === 'throphy-road') {
+      return endlessLevels[levelNumber - 1] || endlessLevels[0];
+    }
+    return brickManiaLevels[0];
+  }, [mode, difficulty, levelNumber]);
+
+  // Helper: Handle power-up activation
+  const activatePowerUp = useCallback((powerUpType: keyof typeof SCORE_SETTINGS.powerUpBricks, duration: number = 10000) => {
+    setActivePowerUps(prev => ({ ...prev, [powerUpType]: true }));
+    
+    // Clear existing timer if any
+    if (powerUpTimers[powerUpType]) {
+      clearTimeout(powerUpTimers[powerUpType]);
+    }
+    
+    // Set new timer
+    const timer = setTimeout(() => {
+      setActivePowerUps(prev => ({ ...prev, [powerUpType]: false }));
+    }, duration);
+    
+    setPowerUpTimers(prev => ({ ...prev, [powerUpType]: timer }));
+  }, [powerUpTimers]);
+
+  // Helper: Handle explosive brick effect
+  const handleExplosiveBrick = useCallback((brick: Brick, bricks: Brick[]): Brick[] => {
+    const explosionRadius = brick.explosionRadius || 100;
+    const updatedBricks = [...bricks];
+    
+    updatedBricks.forEach((otherBrick, index) => {
+      if (!otherBrick.destroyed && otherBrick !== brick) {
+        const distance = Math.sqrt(
+          Math.pow(otherBrick.x + otherBrick.width / 2 - (brick.x + brick.width / 2), 2) +
+          Math.pow(otherBrick.y + otherBrick.height / 2 - (brick.y + brick.height / 2), 2)
+        );
+        
+        if (distance <= explosionRadius) {
+          otherBrick.hits += 1;
+          if (otherBrick.hits >= otherBrick.maxHits) {
+            otherBrick.destroyed = true;
+          }
+        }
+      }
+    });
+    
+    // Add explosion effect
+    setExplosionEffects(prev => [...prev, {
+      x: brick.x + brick.width / 2,
+      y: brick.y + brick.height / 2,
+      radius: explosionRadius,
+      duration: 1000
+    }]);
+    
+    return updatedBricks;
+  }, []);
+
+  // Helper: Handle freeze effect
+  const handleFreezeEffect = useCallback((duration: number = 3000) => {
+    setIsFrozen(true);
+    
+    if (freezeTimer) {
+      clearTimeout(freezeTimer);
+    }
+    
+    const timer = setTimeout(() => {
+      setIsFrozen(false);
+    }, duration);
+    
+    setFreezeTimer(timer);
+  }, [freezeTimer]);
+
+  // Helper: Handle speed boost effect
+  const handleSpeedBoostEffect = useCallback((duration: number = 5000) => {
+    setBallSpeed(prev => prev * 1.5);
+    
+    setTimeout(() => {
+      setBallSpeed(prev => prev / 1.5);
+    }, duration);
+  }, []);
+
+  // Helper: Handle portal effect
+  const handlePortalEffect = useCallback((brick: Brick, ball: Ball): Ball => {
+    if (brick.portalTarget) {
+      return {
+        ...ball,
+        x: brick.portalTarget.x,
+        y: brick.portalTarget.y
+      };
+    }
+    return ball;
+  }, []);
+
+  // Helper: Handle mirror effect
+  const handleMirrorEffect = useCallback((ball: Ball): Ball => {
+    return {
+      ...ball,
+      dx: -ball.dx,
+      dy: -ball.dy
+    };
+  }, []);
+
+  // Helper: Handle multi-ball effect
+  const handleMultiBallEffect = useCallback((): Ball[] => {
+    const currentBall = ballRef.current;
+    const newBalls: Ball[] = [];
+    
+    // Create 2 additional balls
+    for (let i = 0; i < 2; i++) {
+      const angle = (Math.PI / 3) * (i + 1); // 60° and 120° angles
+      newBalls.push({
+        ...currentBall,
+        dx: currentBall.speed * Math.cos(angle),
+        dy: -currentBall.speed * Math.sin(angle)
+      });
+    }
+    
+    return newBalls;
+  }, []);
+
+  // Helper: Handle life bonus
+  const handleLifeBonus = useCallback(() => {
+    setLives(prev => prev + 1);
+    toast.success('Extra life gained!');
+  }, []);
+
+  // Helper: Handle paddle size change
+  const handlePaddleSizeChange = useCallback((type: 'enlarge' | 'shrink', duration: number = 8000) => {
+    const currentPaddle = paddleRef.current;
+    const sizeChange = type === 'enlarge' ? 1.5 : 0.7;
+    
+    setPaddle(prev => ({
+      ...prev,
+      width: prev.width * sizeChange
+    }));
+    
+    setTimeout(() => {
+      setPaddle(prev => ({
+        ...prev,
+        width: prev.width / sizeChange
+      }));
+    }, duration);
+  }, []);
+
   // Check if hints have been shown before
   useEffect(() => {
     const hintsShown = localStorage.getItem('controlsHintsShown');
@@ -595,6 +862,61 @@ const Game = () => {
             brick.y + brick.height / 2 + 3
           );
         }
+        // Special Effect Bricks
+        else if (brick.type === 'specialEffect' && brick.specialEffect) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            SCORE_SETTINGS.specialEffectBricks[brick.specialEffect].name,
+            brick.x + brick.width / 2,
+            brick.y + brick.height / 2 + 3
+          );
+        }
+        // Power-Up Bricks
+        else if (brick.type === 'powerUp' && brick.powerUp) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            SCORE_SETTINGS.powerUpBricks[brick.powerUp].name,
+            brick.x + brick.width / 2,
+            brick.y + brick.height / 2 + 3
+          );
+        }
+        // Behavior Bricks
+        else if (brick.type === 'behavior' && brick.behavior) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            SCORE_SETTINGS.behaviorBricks[brick.behavior].name,
+            brick.x + brick.width / 2,
+            brick.y + brick.height / 2 + 3
+          );
+        }
+        // Mystery Bricks
+        else if (brick.type === 'mystery') {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            SCORE_SETTINGS.mysteryBricks.mystery.name,
+            brick.x + brick.width / 2,
+            brick.y + brick.height / 2 + 3
+          );
+        }
+        // Bonus Bricks
+        else if (brick.type === 'bonus' && brick.bonus) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            SCORE_SETTINGS.bonusBricks[brick.bonus].name,
+            brick.x + brick.width / 2,
+            brick.y + brick.height / 2 + 3
+          );
+        }
       }
     });
     ctx.restore();
@@ -697,6 +1019,36 @@ const Game = () => {
   const lastFrameTimeRef = useRef(Date.now());
   const frameRateAdjustmentRef = useRef(1);
 
+  const saveLevelProgress = () => {
+    const saved = localStorage.getItem('brickBreakerProgress');
+    const data = saved ? JSON.parse(saved) : {};
+    
+    const stars = calculateStars(score, lives, bricks);
+    const currentLevelData = data[`level_${level}`] || { score: 0 };
+
+    // Only update score if it's higher than the previous high score
+    const newScore = Math.max(currentLevelData.score || 0, score);
+
+    data[`level_${level}`] = { 
+      stars: Math.max(currentLevelData.stars || 0, stars),
+      score: newScore,
+      unlocked: true,
+      completed: true  // Add a completed flag
+    };
+    
+    if (level < 100) {
+      data[`level_${level + 1}`] = { 
+        stars: data[`level_${level + 1}`]?.stars || 0,
+        score: data[`level_${level + 1}`]?.score || 0,
+        unlocked: true,
+        completed: data[`level_${level + 1}`]?.completed || false
+      };
+    }
+    
+    localStorage.setItem('brickBreakerProgress', JSON.stringify(data));
+    return newScore;
+  };
+  
   // Modify the gameLoop function to include smooth paddle movement
   const gameLoop = useCallback(() => {
     // Prevent multiple frames from being processed simultaneously
@@ -954,8 +1306,8 @@ const Game = () => {
                   // Add particle effect with device-specific settings
                   const isMaterial = brick.type === 'material';
                   const shouldGlow = isMaterial && ['gold', 'silver'].includes(brick.material || '');
-                    const baseSettings = getParticleSettings();
-                    const particleSettings = adjustSettingsForPerformance(baseSettings);
+                  const baseSettings = getParticleSettings();
+                  const particleSettings = adjustSettingsForPerformance(baseSettings);
 
                   setParticleEffects(prev => [
                     ...prev,
@@ -971,6 +1323,115 @@ const Game = () => {
                       intensity: shouldGlow ? particleSettings.intensity + 0.2 : particleSettings.intensity
                     }
                   ]);
+
+                  // --- SPECIAL BRICK LOGIC ---
+                  if (brick.type === 'specialEffect' && brick.specialEffect) {
+                    switch (brick.specialEffect) {
+                      case 'explosive': {
+                        const explosionRadius = brick.explosionRadius || 100;
+                        updatedBricks.forEach((otherBrick) => {
+                          if (!otherBrick.destroyed && otherBrick !== brick) {
+                            const distance = Math.sqrt(
+                              Math.pow(otherBrick.x + otherBrick.width / 2 - (brick.x + brick.width / 2), 2) +
+                              Math.pow(otherBrick.y + otherBrick.height / 2 - (brick.y + brick.height / 2), 2)
+                            );
+                            if (distance <= explosionRadius) {
+                              otherBrick.hits += 1;
+                              if (otherBrick.hits >= otherBrick.maxHits) {
+                                otherBrick.destroyed = true;
+                              }
+                            }
+                          }
+                        });
+                        setExplosionEffects(prev => [...prev, {
+                          x: brick.x + brick.width / 2,
+                          y: brick.y + brick.height / 2,
+                          radius: explosionRadius,
+                          duration: 1000
+                        }]);
+                        break;
+                      }
+                      case 'freeze': {
+                        setIsFrozen(true);
+                        if (freezeTimer) clearTimeout(freezeTimer);
+                        const timer = setTimeout(() => setIsFrozen(false), 3000);
+                        setFreezeTimer(timer);
+                        break;
+                      }
+                      case 'speedBoost': {
+                        setBallSpeed(prev => prev * 1.5);
+                        setTimeout(() => setBallSpeed(prev => prev / 1.5), 5000);
+                        break;
+                      }
+                      case 'portal': {
+                        if (brick.portalTarget) {
+                          setBall(prev => ({
+                            ...prev,
+                            x: brick.portalTarget!.x,
+                            y: brick.portalTarget!.y
+                          }));
+                        }
+                        break;
+                      }
+                      case 'mirror': {
+                        setBall(prev => ({
+                          ...prev,
+                          dx: -prev.dx,
+                          dy: -prev.dy
+                        }));
+                        break;
+                      }
+                    }
+                  } else if (brick.type === 'powerUp' && brick.powerUp) {
+                    switch (brick.powerUp) {
+                      case 'multiBall': {
+                        const currentBall = ballRef.current;
+                        const newBalls: Ball[] = [];
+                        for (let i = 0; i < 2; i++) {
+                          const angle = (Math.PI / 3) * (i + 1);
+                          newBalls.push({
+                            ...currentBall,
+                            dx: currentBall.speed * Math.cos(angle),
+                            dy: -currentBall.speed * Math.sin(angle)
+                          });
+                        }
+                        setAdditionalBalls(prev => [...prev, ...newBalls]);
+                        break;
+                      }
+                      case 'enlargePaddle': {
+                        setPaddle(prev => ({ ...prev, width: prev.width * 1.5 }));
+                        setTimeout(() => {
+                          setPaddle(prev => ({ ...prev, width: prev.width / 1.5 }));
+                        }, 8000);
+                        break;
+                      }
+                      case 'shrinkPaddle': {
+                        setPaddle(prev => ({ ...prev, width: prev.width * 0.7 }));
+                        setTimeout(() => {
+                          setPaddle(prev => ({ ...prev, width: prev.width / 0.7 }));
+                        }, 8000);
+                        break;
+                      }
+                      case 'slowBall': {
+                        setBallSpeed(prev => prev * 0.7);
+                        setTimeout(() => setBallSpeed(prev => prev / 0.7), 8000);
+                        break;
+                      }
+                      case 'laserPaddle': {
+                        setActivePowerUps(prev => ({ ...prev, laserPaddle: true }));
+                        setTimeout(() => {
+                          setActivePowerUps(prev => ({ ...prev, laserPaddle: false }));
+                        }, 10000);
+                        break;
+                      }
+                    }
+                  } else if (brick.type === 'bonus' && brick.bonus) {
+                    if (brick.bonus === 'lifeBrick') {
+                      setLives(prev => prev + 1);
+                      toast.success('Extra life gained!');
+                    }
+                  }
+                  // --- END SPECIAL BRICK LOGIC ---
 
                   // Floating score animation - use brick position
                   let value = SCORE_SETTINGS.normalBrick;
@@ -1058,7 +1519,7 @@ const Game = () => {
       // Make sure to reset the processing flag
       isProcessingFrameRef.current = false;
     }
-  }, [renderGame, resetBallAndPaddle]);
+  }, [renderGame, resetBallAndPaddle, freezeTimer, levelStartTime, liveStars, saveLevelProgress, score]);
 
   const getDifficultyConfig = (levelNumber: number): DifficultyConfig => {
     const { difficulty } = GAME_SETTINGS;
@@ -1082,118 +1543,59 @@ const Game = () => {
     }
   };
 
-  const generateLevel = (levelNumber: number): Brick[] => {
-    const config = getDifficultyConfig(levelNumber);
-    const newBricks: Brick[] = [];
-    const materialTypes = Object.keys(SCORE_SETTINGS.materialBricks) as Array<keyof typeof SCORE_SETTINGS.materialBricks>;
-    
-    const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
-    const brickWidth = sizes.brickWidth;
-    const brickHeight = sizes.brickHeight;
-    const offsetTop = 80;
-    const totalWidth = config.cols * brickWidth;
-    const offsetLeft = (GAME_SETTINGS.canvas.width - totalWidth) / 2;
-
-    for (let row = 0; row < config.rows; row++) {
-      for (let col = 0; col < config.cols; col++) {
-        if (Math.random() > config.emptyChance) {
-          let brickType: 'normal' | 'material' = 'normal';
-          let maxHits = 1;
-          let color = SCORE_SETTINGS.normalBrickColor;
-          let material: keyof typeof SCORE_SETTINGS.materialBricks | undefined;
-
-          const rand = Math.random();
-          if (rand < 0.3) {
-            brickType = 'material';
-            maxHits = 1;
-            const randomMaterial = materialTypes[Math.floor(Math.random() * materialTypes.length)];
-            material = randomMaterial;
-            color = SCORE_SETTINGS.materialBricks[randomMaterial].color;
-          }
-
-          newBricks.push({
-            x: offsetLeft + col * brickWidth,
-            y: offsetTop + row * brickHeight,
-            width: brickWidth,
-            height: brickHeight,
-            color: color,
-            destroyed: false,
-            hits: 0,
-            maxHits: maxHits,
-            type: brickType,
-            material
-          });
-        }
-      }
-    }
-
-    return newBricks;
-  };
-
-  const initializeGame = useCallback((levelNumber?: number) => {
+  // Refactored initializeGame to use handcrafted levels
+  const initializeGame = useCallback(() => {
     if (isInitializedRef.current) return;
-
-    const currentLevel = levelNumber || level;
-    const config = getDifficultyConfig(currentLevel);
-    const newBricks = generateLevel(currentLevel);
+    const levelConfig = getLevelConfig();
+    if (!levelConfig) return;
 
     setScore(0);
     setLives(GAME_SETTINGS.lives);
     setGameState('ready');
-    // In ready state, we want the game loop to run so player can move paddle
     isPausedRef.current = false;
     setIsPaused(false);
     setBricksBroken(0);
-    
-    // Reset touch control state
     touchActiveRef.current = false;
     touchDirectionRef.current = null;
     isDraggingRef.current = false;
     setTouchHintVisible(true);
     setKeyboardHintVisible(true);
-    
-    // Reset keyboard state
-    Object.keys(keysRef.current).forEach(key => {
-      keysRef.current[key] = false;
-    });
-    
-    const sizes = isMobile ? GAME_SIZES.mobile : GAME_SIZES.desktop;
-    const paddleWidth = sizes.paddleWidth;
-    const paddleHeight = sizes.paddleHeight;
+    Object.keys(keysRef.current).forEach(key => { keysRef.current[key] = false; });
 
-    // Determine paddle Y position based on device type
+    // Paddle and ball from level config
+    const paddleWidth = levelConfig.paddleWidth;
+    const paddleHeight = GAME_SETTINGS.paddle.height;
     let paddleY;
-    if (window.innerWidth < 768) { // Mobile
-      paddleY = GAME_SETTINGS.paddle.mobileInitialY;
-    } else if (window.innerWidth < 1024) { // Tablet
-      paddleY = GAME_SETTINGS.paddle.tabletInitialY;
-    } else { // Desktop
-      paddleY = GAME_SETTINGS.paddle.initialY;
-    }
-
-    const newPaddle = { 
-      x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2, 
-      y: paddleY, 
+    if (window.innerWidth < 768) paddleY = GAME_SETTINGS.paddle.mobileInitialY;
+    else if (window.innerWidth < 1024) paddleY = GAME_SETTINGS.paddle.tabletInitialY;
+    else paddleY = GAME_SETTINGS.paddle.initialY;
+    const newPaddle = {
+      x: (GAME_SETTINGS.canvas.width - paddleWidth) / 2,
+      y: paddleY,
       width: paddleWidth,
-      height: paddleHeight 
+      height: paddleHeight
     };
     setPaddle(newPaddle);
-
-    const ballRadius = sizes.ballRadius;
+    const ballRadius = GAME_SIZES.desktop.ballRadius;
     const newBall = {
       x: newPaddle.x + newPaddle.width / 2,
-      y: newPaddle.y - ballRadius - 2, // Position ball just above paddle
-      dx: 0,  // No horizontal movement
-      dy: 0,  // No vertical movement
+      y: newPaddle.y - ballRadius - 2,
+      dx: 0,
+      dy: 0,
       radius: ballRadius,
-      speed: 0,  // No speed
-      baseSpeed: GAME_SETTINGS.ball.baseSpeed
+      speed: 0,
+      baseSpeed: levelConfig.ballSpeed
     };
     setBall(newBall);
-    
-    setBricks(newBricks);
+    setBricks(levelConfig.bricks.map(brick => ({ ...brick }))); // Deep copy
     isInitializedRef.current = true;
-  }, [level, isMobile]);
+  }, [mode, difficulty, levelNumber, getLevelConfig]);
+
+  // Call initializeGame when mode/difficulty/level changes
+  useEffect(() => {
+    isInitializedRef.current = false;
+    initializeGame();
+  }, [mode, difficulty, levelNumber, initializeGame]);
 
   const handleMenuOpen = useCallback(() => {
     if (GAME_SETTINGS.debug) {
@@ -1586,46 +1988,18 @@ const Game = () => {
     }
   }, []);
 
-  const saveLevelProgress = () => {
-    const saved = localStorage.getItem('brickBreakerProgress');
-    const data = saved ? JSON.parse(saved) : {};
-    
-    const stars = calculateStars(score, lives, bricks);
-    const currentLevelData = data[`level_${level}`] || { score: 0 };
-
-    // Only update score if it's higher than the previous high score
-    const newScore = Math.max(currentLevelData.score || 0, score);
-
-    data[`level_${level}`] = { 
-      stars: Math.max(currentLevelData.stars || 0, stars),
-      score: newScore,
-      unlocked: true,
-      completed: true  // Add a completed flag
-    };
-    
-    if (level < 100) {
-      data[`level_${level + 1}`] = { 
-        stars: data[`level_${level + 1}`]?.stars || 0,
-        score: data[`level_${level + 1}`]?.score || 0,
-        unlocked: true,
-        completed: data[`level_${level + 1}`]?.completed || false
-      };
-    }
-    
-    localStorage.setItem('brickBreakerProgress', JSON.stringify(data));
-    return newScore;
-  };
+  
 
   const resetLevel = useCallback(() => {
     isInitializedRef.current = false;
-    initializeGame(level);
+    initializeGame();
     setGameState('ready');
     // Update both the ref and state for pause
     isPausedRef.current = true;
     setIsPaused(true);
     setShowMenu(false);
     setBricksBroken(0);
-  }, [level, initializeGame]);
+  }, [initializeGame]);
 
   const quitToMenu = () => {
     navigate('/brick-mania');
@@ -1712,9 +2086,9 @@ const Game = () => {
     if (newLevel !== level) {
       setLevel(newLevel);
       isInitializedRef.current = false;
-      initializeGame(newLevel);
+      initializeGame();
     } else if (!isInitializedRef.current) {
-      initializeGame(newLevel);
+      initializeGame();
     }
     
     document.title = `Level ${newLevel} - Brick Breaker`;
@@ -1788,7 +2162,7 @@ const Game = () => {
         saveLevelProgress();
       }
     };
-  }, [gameState]);
+  }, [gameState, saveLevelProgress]);
 
   // Reset hasSavedWinRef when level/game restarts
   useEffect(() => {

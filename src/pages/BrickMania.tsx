@@ -73,7 +73,7 @@ const BrickMania = () => {
       
       // Navigate with a slight delay to allow touch feedback to show
       setTimeout(() => {
-        navigate(`/game?level=${level}`);
+        navigate(`/game?mode=brick-mania&level=${level}`);
         // Reset the flag after a longer timeout to ensure navigation completes
         setTimeout(() => {
           isNavigatingRef.current = false;

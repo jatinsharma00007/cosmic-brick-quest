@@ -10,6 +10,9 @@ import NotFound from "./pages/NotFound";
 import ModeSelect from "./pages/ModeSelect";
 import Challenge from "./pages/Challenge";
 import ThrophyRoad from "./pages/ThrophyRoad";
+import ChallengeEasy from "./pages/ChallengeEasy";
+import ChallengeMedium from "./pages/ChallengeMedium";
+import ChallengeHard from "./pages/ChallengeHard";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +27,9 @@ const App = () => (
           <Route path="/mode-select" element={<ModeSelect />} />
           <Route path="/brick-mania" element={<BrickMania />} />
           <Route path="/challenge" element={<Challenge />} />
+          <Route path="/challenge-easy" element={<ChallengeEasy />} />
+          <Route path="/challenge-medium" element={<ChallengeMedium />} />
+          <Route path="/challenge-hard" element={<ChallengeHard />} />
           <Route path="/throphy-road" element={<ThrophyRoad />} />
           <Route path="/game" element={<Game />} />
           <Route path="*" element={<NotFound />} />

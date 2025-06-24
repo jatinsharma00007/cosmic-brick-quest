@@ -1,4 +1,4 @@
-import { LevelConfig, createBrick } from '../../../../lib/levelConfig';
+import { LevelConfig, createBrick, createMaterialBrick } from '../../../lib/levelConfig';
 
 const hardLevel1: LevelConfig = {
   id: 1,
